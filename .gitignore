@@ -1,2 +1,3 @@
-workspace/models/
-workspace/data/
+models/
+data/
+outputs/
