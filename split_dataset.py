@@ -49,9 +49,9 @@ COL_UID        = "uid"
 COL_FILENAME   = "filename"
 
 # Percorsi RunPod
-IMAGES_DIR  = Path("/workspace/data/images/images_normalized")
-CSV_DEFAULT = Path("/workspace/data/dataset_filtrato.csv")
-OUT_DEFAULT = Path("/workspace/data/processed")
+IMAGES_DIR  = Path("/home/maselli/develop/shield/data/images/images_normalized")
+CSV_DEFAULT = Path("/home/maselli/develop/shield/data/dataset_filtrato.csv")
+OUT_DEFAULT = Path("/home/maselli/develop/shield/data/processed")
 
 # System prompt del radiologo
 SYSTEM_PROMPT = (
