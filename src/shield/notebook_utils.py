@@ -73,26 +73,48 @@ def load_json_records(path: str | Path) -> list[dict[str, Any]]:
         return json.load(handle)
 
 
+def normalize_messages(messages: Any) -> list[dict[str, Any]]:
+    if isinstance(messages, str):
+        messages = json.loads(messages)
+    if not isinstance(messages, list):
+        raise TypeError(f"Formato messages non valido: {type(messages)!r}")
+
+    normalized: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            raise TypeError(f"Messaggio chat non valido: {type(message)!r}")
+        item = dict(message)
+        if item.get("role") == "assistant" and isinstance(item.get("content"), list):
+            item["content"] = "\n".join(str(value) for value in item["content"])
+        normalized.append(item)
+    return normalized
+
+
 def load_hf_dataset(path: str | Path):
     from datasets import Dataset
 
     records = load_json_records(path)
+    dataset_records = []
     for example in records:
-        for message in example.get("messages", []):
-            if message.get("role") == "assistant" and isinstance(message.get("content"), list):
-                message["content"] = "\n".join(str(item) for item in message["content"])
-    return Dataset.from_list(records)
+        messages = normalize_messages(example.get("messages", []))
+        dataset_records.append(
+            {
+                **{key: value for key, value in example.items() if key != "messages"},
+                "messages": json.dumps(messages, ensure_ascii=False),
+            }
+        )
+    return Dataset.from_list(dataset_records)
 
 
 def extract_assistant_text(example: dict[str, Any]) -> str:
-    for message in example.get("messages", []):
+    for message in normalize_messages(example.get("messages", [])):
         if message.get("role") == "assistant":
             return str(message.get("content", ""))
     return ""
 
 
 def extract_image_path(example: dict[str, Any]) -> str | None:
-    for message in example.get("messages", []):
+    for message in normalize_messages(example.get("messages", [])):
         if message.get("role") != "user":
             continue
         content = message.get("content", [])
@@ -145,7 +167,7 @@ class XRayDataCollator:
         images_list = []
 
         for example in examples:
-            messages = example["messages"]
+            messages = normalize_messages(example["messages"])
             image_path = extract_image_path(example)
 
             if image_path and os.path.exists(image_path):
