@@ -1,0 +1,49 @@
+[mlflow]
+experiment_name = "shield-qwen3vl-xray-it"
+tracking_uri = "http://127.0.0.1:5000"
+
+[run]
+name = "qwen3vl-2b-zero-shot-baseline"
+notes = "Zero-shot inference baseline on the same IU X-Ray Italian test set used for fine-tuning evaluation."
+tags = [
+  "model:qwen3vl",
+  "dataset:iu-xray-it",
+  "method:zero-shot",
+  "baseline:true",
+]
+
+[paths]
+raw_csv = "data/dataset_filtrato.csv"
+images_dir = "data/images/images_normalized"
+processed_dir = "data/processed"
+checkpoints_dir = "outputs/checkpoints/qwen3vl_2b_zero_shot_baseline"
+evaluation_dir = "outputs/evaluation/qwen3vl_2b_zero_shot_baseline"
+model_dir = "models/Qwen3-VL-2B-Instruct"
+
+[dataset]
+name = "IU X-Ray translated Italian"
+split_manifest = "data/processed/split_manifest.json"
+split_seed = 42
+train_fraction = 0.8
+val_fraction = 0.1
+test_fraction = 0.1
+
+[model]
+base_model = "Qwen3-VL-2B-Instruct"
+local_path = "models/Qwen3-VL-2B-Instruct"
+task = "medical-report-generation"
+
+[inference]
+method = "zero-shot"
+max_new_tokens = 512
+repetition_penalty = 1.1
+load_in_4bit = true
+torch_dtype = "bfloat16"
+max_image_pixels = 1003520
+seed = 42
+
+[evaluation]
+metrics_file = "outputs/evaluation/qwen3vl_2b_zero_shot_baseline/metrics.json"
+qualitative_file = "outputs/evaluation/qwen3vl_2b_zero_shot_baseline/qualitative.json"
+bertscore_model_type = "xlm-roberta-large"
+qualitative_examples = 20

@@ -14,12 +14,12 @@ finiscano in split diversi (data leakage).
 PREREQUISITO: esegui prima il preprocessing che produce dataset_filtrato.csv
               e carica le immagini in /workspace/data/images/images_normalized/
 
-Uso su RunPod (default, nessun argomento necessario):
-  python split_dataset.py
+Uso su RunPod/server (default, nessun argomento necessario):
+  uv run python scripts/data/split_dataset.py
 
 Uso con percorsi custom:
-  python split_dataset.py --csv /path/to/dataset_filtrato.csv
-  python split_dataset.py --train 0.8 --val 0.1 --test 0.1
+  uv run python scripts/data/split_dataset.py --csv /path/to/dataset_filtrato.csv
+  uv run python scripts/data/split_dataset.py --train 0.8 --val 0.1 --test 0.1
 
 Dipendenze: pandas, scikit-learn, tqdm
 """

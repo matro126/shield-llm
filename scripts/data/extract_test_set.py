@@ -6,7 +6,7 @@ Legge test.json (prodotto da split_dataset.py) e:
   2. Copia le immagini del test set in una cartella dedicata
 
 Uso:
-    python extract_test_set.py \
+    uv run python scripts/data/extract_test_set.py \
         --test-json  workspace/data/processed/test.json \
         --csv        workspace/data/dataset_filtrato.csv \
         --images-dir workspace/data/images/images_normalized \

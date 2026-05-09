@@ -1,3 +1,38 @@
-models/
-data/
-outputs/
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+
+.venv/
+.venv-*/
+.uv-cache/
+
+# Large data is tracked with DVC metadata, not Git.
+data/**
+!data/**/
+!data/.gitkeep
+!data/**/*.dvc
+!data/**/.gitignore
+!data/README.md
+
+# Base models are downloaded locally or tracked with DVC metadata when needed.
+models/**
+!models/**/
+!models/.gitkeep
+!models/**/*.dvc
+!models/**/.gitignore
+!models/README.md
+
+# Training outputs are logged to MLflow or tracked explicitly with DVC.
+outputs/**
+!outputs/**/
+!outputs/.gitkeep
+!outputs/**/*.dvc
+!outputs/**/.gitignore
+!outputs/README.md
+
+# MLflow runtime state lives locally. Back it up explicitly when needed.
+mlflow/**
+!mlflow/**/
+!mlflow/.gitkeep
+!mlflow/README.md

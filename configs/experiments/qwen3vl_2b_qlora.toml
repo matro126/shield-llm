@@ -1,0 +1,65 @@
+[mlflow]
+experiment_name = "shield-qwen3vl-xray-it"
+tracking_uri = "http://127.0.0.1:5000"
+
+[run]
+name = "qwen3vl-2b-qlora-baseline"
+notes = "Baseline QLoRA on IU X-Ray translated to Italian."
+tags = [
+  "model:qwen3vl",
+  "dataset:iu-xray-it",
+  "method:qlora",
+]
+
+[paths]
+raw_csv = "data/dataset_filtrato.csv"
+images_dir = "data/images/images_normalized"
+processed_dir = "data/processed"
+checkpoints_dir = "outputs/checkpoints"
+evaluation_dir = "outputs/evaluation"
+model_dir = "models/Qwen3-VL-2B-Instruct"
+
+[dataset]
+name = "IU X-Ray translated Italian"
+split_manifest = "data/processed/split_manifest.json"
+split_seed = 42
+train_fraction = 0.8
+val_fraction = 0.1
+test_fraction = 0.1
+
+[model]
+base_model = "Qwen3-VL-2B-Instruct"
+local_path = "models/Qwen3-VL-2B-Instruct"
+task = "medical-report-generation"
+
+[finetuning]
+method = "qlora"
+quantization = "4bit"
+epochs = 3
+per_device_train_batch_size = 1
+per_device_eval_batch_size = 1
+gradient_accumulation_steps = 4
+learning_rate = 0.0002
+warmup_ratio = 0.03
+weight_decay = 0.0
+max_length = 2048
+seed = 42
+
+[peft]
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+target_modules = [
+  "q_proj",
+  "k_proj",
+  "v_proj",
+  "o_proj",
+  "gate_proj",
+  "up_proj",
+  "down_proj",
+]
+
+[evaluation]
+metrics_file = "outputs/evaluation/metrics_finetuned.json"
+qualitative_file = "outputs/evaluation/qualitative_finetuned.json"
+bertscore_model_type = "xlm-roberta-large"

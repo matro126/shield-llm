@@ -1,0 +1,86 @@
+[mlflow]
+experiment_name = "shield-qwen3vl-xray-it"
+tracking_uri = "http://127.0.0.1:5000"
+
+[run]
+name = "qwen3vl-2b-qlora-early-stopping"
+notes = "Qwen3-VL 2B fine-tuning with QLoRA and early stopping on validation loss."
+tags = [
+  "model:qwen3vl",
+  "dataset:iu-xray-it",
+  "method:qlora",
+  "early-stopping:true",
+]
+
+[paths]
+raw_csv = "data/dataset_filtrato.csv"
+images_dir = "data/images/images_normalized"
+processed_dir = "data/processed"
+checkpoints_dir = "outputs/checkpoints/qwen3vl_2b_qlora_early_stopping"
+evaluation_dir = "outputs/evaluation/qwen3vl_2b_qlora_early_stopping"
+model_dir = "models/Qwen3-VL-2B-Instruct"
+
+[dataset]
+name = "IU X-Ray translated Italian"
+split_manifest = "data/processed/split_manifest.json"
+split_seed = 42
+train_fraction = 0.8
+val_fraction = 0.1
+test_fraction = 0.1
+
+[model]
+base_model = "Qwen3-VL-2B-Instruct"
+local_path = "models/Qwen3-VL-2B-Instruct"
+task = "medical-report-generation"
+
+[finetuning]
+method = "qlora"
+quantization = "4bit"
+epochs = 10
+per_device_train_batch_size = 1
+per_device_eval_batch_size = 1
+gradient_accumulation_steps = 4
+learning_rate = 0.0002
+lr_scheduler_type = "cosine"
+warmup_ratio = 0.05
+weight_decay = 0.01
+max_grad_norm = 1.0
+max_length = 2048
+max_image_pixels = 1003520
+seed = 42
+bf16 = true
+fp16 = false
+gradient_checkpointing = true
+dataloader_num_workers = 2
+save_strategy = "epoch"
+eval_strategy = "epoch"
+save_total_limit = 3
+load_best_model_at_end = true
+metric_for_best_model = "eval_loss"
+greater_is_better = false
+logging_steps = 10
+
+[early_stopping]
+patience = 2
+threshold = 0.0
+
+[peft]
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+target_modules = [
+  "q_proj",
+  "k_proj",
+  "v_proj",
+  "o_proj",
+  "gate_proj",
+  "up_proj",
+  "down_proj",
+]
+
+[evaluation]
+metrics_file = "outputs/evaluation/qwen3vl_2b_qlora_early_stopping/metrics.json"
+qualitative_file = "outputs/evaluation/qwen3vl_2b_qlora_early_stopping/qualitative.json"
+bertscore_model_type = "xlm-roberta-large"
+qualitative_examples = 20
+max_new_tokens = 512

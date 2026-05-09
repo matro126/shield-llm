@@ -1,0 +1,7 @@
+.git
+.venv
+.venv-*
+.uv-cache
+.ipynb_checkpoints
+.DS_Store
+mlflow

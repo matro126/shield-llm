@@ -10,7 +10,7 @@ Controlla:
   5. Che il totale degli uid nei JSON corrisponda al manifest
 
 Uso:
-    python sanity_check.py \
+    uv run python scripts/data/sanity_check.py \
         --processed-dir workspace/data/processed \
         --images-dir    workspace/data/images/images_normalized
 

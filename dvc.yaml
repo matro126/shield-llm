@@ -1,0 +1,39 @@
+stages:
+  split_dataset:
+    cmd: >-
+      uv run python scripts/data/split_dataset.py
+      --csv ${paths.raw_csv}
+      --images-dir ${paths.images_dir}
+      --output-dir ${paths.processed_dir}
+      --seed ${split.seed}
+      --train ${split.train}
+      --val ${split.val}
+      --test ${split.test}
+    deps:
+      - scripts/data/split_dataset.py
+      - ${paths.raw_csv}
+      - ${paths.images_dir}
+    params:
+      - paths.raw_csv
+      - paths.images_dir
+      - paths.processed_dir
+      - split.seed
+      - split.train
+      - split.val
+      - split.test
+    outs:
+      - ${paths.processed_dir}
+
+  sanity_check:
+    cmd: >-
+      uv run python scripts/data/sanity_check.py
+      --processed-dir ${paths.processed_dir}
+      --images-dir ${paths.images_dir}
+    deps:
+      - scripts/data/sanity_check.py
+      - ${paths.processed_dir}
+      - ${paths.images_dir}
+    params:
+      - paths.processed_dir
+      - paths.images_dir
+    always_changed: true
