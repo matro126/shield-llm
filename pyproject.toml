@@ -12,6 +12,7 @@ dependencies = [
     "dvc>=3.67.1",
     "jupyter>=1.1.1",
     "mlflow>=3",
+    "nvidia-cudnn-cu12>=9.10,<10; sys_platform == 'linux'",
     "pandas>=2.2,<3",
     "peft>=0.18.1",
     "pillow>=12.1.1",
