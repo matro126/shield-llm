@@ -1,0 +1,28 @@
+dataset: iu-xray
+version: iu-xray_v1.2
+
+source:
+  reports_dir: dataset/iu-xray/original/reports
+
+output_dir: dataset/iu-xray
+
+report:
+  target: findings_impression
+  views: frontal
+  frontal_selection: symmetry
+
+translation:
+  backend: passthrough
+  source_lang: en
+  target_lang: en
+
+split:
+  annotation: dataset/iu-xray/iu_xray_r2gen/annotation.json
+  images_dir: dataset/iu-xray/iu_xray_r2gen/images
+
+fields:
+  findings_label: FINDINGS
+  impression_label: IMPRESSION
+
+filter:
+  require_report_text: true
