@@ -1,39 +1,13 @@
 stages:
-  split_dataset:
-    cmd: >-
-      uv run python scripts/data/split_dataset.py
-      --csv ${paths.raw_csv}
-      --images-dir ${paths.images_dir}
-      --output-dir ${paths.processed_dir}
-      --seed ${split.seed}
-      --train ${split.train}
-      --val ${split.val}
-      --test ${split.test}
+  preprocess_iu_xray_v1.0:
+    cmd: uv run python scripts/data/preprocessing/iu-xray/run.py
+      --config scripts/data/preprocessing/iu-xray/config_iu-xray_v1.0.yaml
     deps:
-      - scripts/data/split_dataset.py
-      - ${paths.raw_csv}
-      - ${paths.images_dir}
-    params:
-      - paths.raw_csv
-      - paths.images_dir
-      - paths.processed_dir
-      - split.seed
-      - split.train
-      - split.val
-      - split.test
+      - scripts/data/preprocessing/iu-xray/run.py
+      - scripts/data/preprocessing/iu-xray/config_iu-xray_v1.0.yaml
+      - src/shield/data/preprocessing.py
+      - dataset/iu-xray/original
+      - dataset/iu-xray/iu_xray_r2gen/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen/images
     outs:
-      - ${paths.processed_dir}
-
-  sanity_check:
-    cmd: >-
-      uv run python scripts/data/sanity_check.py
-      --processed-dir ${paths.processed_dir}
-      --images-dir ${paths.images_dir}
-    deps:
-      - scripts/data/sanity_check.py
-      - ${paths.processed_dir}
-      - ${paths.images_dir}
-    params:
-      - paths.processed_dir
-      - paths.images_dir
-    always_changed: true
+      - dataset/iu-xray/iu-xray_v1.0

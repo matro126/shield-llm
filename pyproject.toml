@@ -10,12 +10,14 @@ dependencies = [
     "bitsandbytes>=0.49.2",
     "datasets>=4.8.4",
     "dvc>=3.67.1",
+    "f1chexbert>=0.0.2",  # CheXBERT label F1 (§3.8.1) — checkpoint radiologia EN
     "jupyter>=1.1.1",
     "mlflow>=3",
     "nvidia-cudnn-cu12>=9.10,<10; sys_platform == 'linux'",
     "pandas>=2.2,<3",
     "peft>=0.18.1",
     "pillow>=12.1.1",
+    "pycocoevalcap>=1.2",  # BLEU coco-caption (§3.8.1) — confrontabile con R2Gen
     "qwen-vl-utils>=0.0.14",
     "rouge-score>=0.1.2",
     "scikit-learn>=1.8.0",
