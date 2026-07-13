@@ -1,3 +1,1 @@
-"""Utilities for SHIELD experiments."""
-
-__all__ = ["notebook_utils", "tracking"]
+__all__ = ["config", "tracking"]
