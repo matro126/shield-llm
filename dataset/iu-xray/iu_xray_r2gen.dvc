@@ -1,0 +1,6 @@
+outs:
+- md5: 4cba1e1ceb7187f127b58d0413aa62df.dir
+  size: 1116930841
+  nfiles: 6092
+  hash: md5
+  path: iu_xray_r2gen

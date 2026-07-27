@@ -1,0 +1,6 @@
+outs:
+- md5: c56e4d9aceefa80c65cc8278b4257013.dir
+  size: 1111702330
+  nfiles: 6064
+  hash: md5
+  path: iu_xray_r2gen_labeled_preprocessed

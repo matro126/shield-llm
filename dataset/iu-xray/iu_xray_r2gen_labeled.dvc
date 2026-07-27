@@ -1,0 +1,6 @@
+outs:
+- md5: 709cb52a53c0c89e32a4a080e0bc3232.dir
+  size: 2233277298
+  nfiles: 12185
+  hash: md5
+  path: iu_xray_r2gen_labeled

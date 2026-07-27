@@ -1,0 +1,73 @@
+dataset: iu-xray
+version: iu_xray_en_F-FI
+views: frontal
+target: findings_impression
+lang: en
+split_source: R2Gen annotation.json (etichettato a mano, ripulito a monte)
+text_source: iu_xray_translated.csv
+n_examples:
+  train: 2055
+  val: 294
+  test: 590
+prompts:
+  system: 'You are an expert radiologist. You will be provided with one or more medical
+    images. Your task is to: 1) Concisely describe the findings visible in the image
+    or images, including anatomical structures, abnormalities, and relevant observations.
+    2) Provide a concise clinical impression that summarizes the main findings. Provide
+    your answer in EXACTLY this format:
+
+    Findings:
+
+    <your detailed findings here>
+
+    <SEP>
+
+    Impression:
+
+    <your concise impression here>
+
+
+    Do not include any other sections or preamble.'
+  user: 'You are given a frontal chest X-ray. Describe the visible findings and provide
+    a concise clinical impression. Answer EXACTLY in this format:
+
+    Findings:
+
+    <your findings here>
+
+    <SEP>
+
+    Impression:
+
+    <your impression here>
+
+    Do not include any other sections or preamble.'
+provenance:
+  git.commit: ba1f5bdeb67ea05e57e86315cc3f20cfde85a26e
+  git.branch: main
+  git.is_dirty: true
+  git.changed_files: 67
+integrity:
+  inputs:
+    annotation: sha256:24d742a64450696a5c2d7c66d301dba40d6de8110b390eec322ed475061357da
+    translations_csv: sha256:ebec11f50b5734444f75f22d443be47c959a0a6d032316d767e62b0cf765f7aa
+    labeled_images: sha256:28138250d2e6d571f18ddda40b53df045e4ab44293f8d466a8358c27a8566024
+    uv_lock: sha256:5367aa55f103cf4f7ef3ab6cf755878aa8efe8ba894240f44bc2ccbc53d004b1
+  code:
+    src/shield/data/build.py: sha256:a90b8763e87cbda6397965562c990b61a56e135d79602e72d82e89e03ffd40ad
+    src/shield/data/images.py: sha256:4c34820ca52f18b8f15616cd11d16830ac6ea9fe3f8f560e4266710a1b424ceb
+    src/shield/data/openi.py: sha256:15c07c06cc668123e07defb9307ade538600c0e8fa0dfa61828322011f45c28e
+    src/shield/data/prompts.py: sha256:7c0b62fe9c0a1cf785bd9adccf802596f03254d67976461056e6a821795486f1
+    src/shield/data/records.py: sha256:e566a954e073fd9d291d53b998a5b48e5b62d2cb17b81d8a9542508dda7714fc
+    src/shield/data/text_source.py: sha256:40ef255e5fe984942b0c812e702e2cd66bba5af39f41132bc71e52412f3f5743
+    src/shield/tracking/__init__.py: sha256:b92fba52401d9f1c4b6ab3a4cdf66939ded6c666c9123bfb56a0370ab19c8313
+    src/shield/tracking/core.py: sha256:b220c749b011b4f56810629febd16b676e84c3109bd2089c632d843fd9177929
+    src/shield/tracking/provenance.py: sha256:f572f373f5526f8695ba93764dce34034f2cb89a740bbbe2cfb8756b9ccfa09d
+  prompts:
+    system: sha256:62d83a78e78ebc141eb37c17057b5b6ad6565dd218a5eeeb580cddc7f3479338
+    user: sha256:810ab9509459fcbd94de429cfdc4e99a64fac619228b25ece63b0f2e09028748
+  outputs:
+    train.jsonl: sha256:9dac7e69777bfd741febf976860aa8a2ad42a4fa5815cd72f5a75c5992c25600
+    val.jsonl: sha256:dc67ddac34ed39f4975c48b8598b15cf6ca12d27c0f122410979b50229e06dc7
+    test.jsonl: sha256:5343d98c51d54de63cd1a105ca9fc2ec2a0e511edbd132db3088c1a8d1eacdda
+    images_normalized: sha256:daf401408c9f21ac8ab052ac989e177484a674c941d78e6c4129287108f8e41a
