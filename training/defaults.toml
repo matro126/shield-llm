@@ -1,0 +1,48 @@
+[lora]
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
+                  "gate_proj", "up_proj", "down_proj"]
+
+[ottimizzazione]
+learning_rate = 1e-5
+max_epochs = 10
+per_device_train_batch_size = 8
+per_device_eval_batch_size = 8
+gradient_accumulation_steps = 2
+warmup_ratio = 0.03
+weight_decay = 0.01
+lr_scheduler_type = "cosine"
+max_seq_length = 1536
+logging_steps = 5
+seed = 42
+
+[validazione]
+eval_cadence = "epoch"
+eval_steps = 65
+eval_metrics = ["bleu", "rougeL"]
+monitor_metric = "rougeL"
+monitor_mode = "max"
+early_stopping_patience = 5
+early_stopping_min_delta = 0.005   
+eval_max_samples = 0            
+gen_batch_size = 16
+max_new_tokens = 1024
+repetition_penalty = 1.1
+
+[esecuzione]
+dataloader_num_workers = 8
+dataloader_persistent_workers = true
+
+archive_results = true
+archive_adapter = true
+
+[test]
+test_metrics = ["bleu", "rougeL"]
+baseline_max_samples = 0        # 0 = tutto il test set
+
+[mlflow]
+mlflow_enabled = true
+mlflow_tracking_uri = ""        # vuoto = MLFLOW_TRACKING_URI o http://127.0.0.1:5000
+mlflow_experiment_name = ""     # vuoto = shield-qwen3vl-xray-it
