@@ -1,146 +1,159 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 
-def load_processor(model_path: str | Path, ft: Mapping[str, Any]) -> Any:
-    from transformers import AutoProcessor
-
-    min_pixels = int(ft.get("min_image_pixels", 512 * 32 * 32))
-    max_pixels = int(ft.get("max_image_pixels", 1280 * 32 * 32))
-    processor = AutoProcessor.from_pretrained(
-        str(model_path), min_pixels=min_pixels, max_pixels=max_pixels
-    )
-    _assert_processor_pixels(processor, min_pixels, max_pixels)
-    return processor
-
-
-def _effective_pixels(image_processor: Any) -> tuple[int | None, int | None]:
-    min_px = getattr(image_processor, "min_pixels", None)
-    max_px = getattr(image_processor, "max_pixels", None)
-    size = getattr(image_processor, "size", None)
-    if isinstance(size, Mapping):
-        min_px = size.get("min_pixels", min_px)
-        max_px = size.get("max_pixels", max_px)
-    return (
-        int(min_px) if min_px is not None else None,
-        int(max_px) if max_px is not None else None,
-    )
-
-
-def _assert_processor_pixels(processor: Any, min_pixels: int, max_pixels: int) -> None:
-    image_processor = getattr(processor, "image_processor", processor)
-    eff_min, eff_max = _effective_pixels(image_processor)
-    if eff_min is None or eff_max is None:
-        print(
-            "[model] ⚠️ impossibile verificare min/max_pixels del processor "
-            f"(layout non riconosciuto); richiesti min={min_pixels}, max={max_pixels}."
-        )
-        return
-    if (eff_min, eff_max) != (min_pixels, max_pixels):
-        raise RuntimeError(
-            "Risoluzione del processor non propagata: richiesti "
-            f"min={min_pixels}/max={max_pixels}, effettivi min={eff_min}/max={eff_max}. "
-            "Bug noto di transformers su min/max_pixels in from_pretrained: aggiorna la "
-            "versione o imposta i pixel direttamente sull'image processor."
-        )
-
-
-def _select_dtype() -> Any:
+def load_model_and_processor(
+    cfg: Any, project_root: Path, with_adapter: bool = True
+) -> tuple[Any, Any]:
     import torch
-
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-        return torch.bfloat16
-    return torch.float16
-
-
-def _bnb_config(compute_dtype: Any) -> Any:
-    from transformers import BitsAndBytesConfig
-
-    return BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from transformers import (
+        AutoModelForImageTextToText,
+        AutoProcessor,
+        BitsAndBytesConfig,
     )
 
+    local_path = project_root / cfg.model_path if cfg.model_path else None
+    if local_path is not None and local_path.exists():
+        model_src = str(local_path)
+        print(f"[modello] copia locale: {model_src}")
+    else:
+        model_src = cfg.base_model
+        print(f"[modello] dall'hub: {model_src}")
 
-def load_base_model(config: Mapping[str, Any], model_path: str | Path) -> Any:
-    from transformers import Qwen3VLForConditionalGeneration
-
-    ft = config["finetuning"]
-    method = ft["method"]
-    dtype = _select_dtype()
-    quant_config = _bnb_config(dtype) if method == "qlora" else None
-    attn = ft.get("attn_implementation", "flash_attention_2")
+    processor = AutoProcessor.from_pretrained(model_src, trust_remote_code=True)
+    tokenizer = processor.tokenizer
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     kwargs: dict[str, Any] = {
-        "quantization_config": quant_config,
+        "torch_dtype": torch.bfloat16,
         "device_map": "auto",
-        "torch_dtype": dtype,
+        "trust_remote_code": True,
     }
-    try:
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            str(model_path), attn_implementation=attn, **kwargs
+    if cfg.load_in_4bit:
+        kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
         )
-    except (ImportError, ValueError) as exc:
-        print(f"[model] attn '{attn}' non disponibile ({exc}); fallback a 'sdpa'.")
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            str(model_path), attn_implementation="sdpa", **kwargs
-        )
+
+    model = AutoModelForImageTextToText.from_pretrained(model_src, **kwargs)
+    if not with_adapter:
+        model.eval()
+        model.config.use_cache = True
+        print("[modello] base nuda (nessun adapter): baseline zero-shot")
+        return model, processor
+
+    if cfg.load_in_4bit:
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    model.enable_input_require_grads()
     model.config.use_cache = False
 
-    gradient_checkpointing = ft.get("gradient_checkpointing", True)
-    if method == "qlora":
-        from peft import prepare_model_for_kbit_training
-
-        model = prepare_model_for_kbit_training(
-            model, use_gradient_checkpointing=gradient_checkpointing
-        )
-    elif gradient_checkpointing:
-        model.enable_input_require_grads()
-    return model
-
-
-def apply_peft(model: Any, config: Mapping[str, Any]) -> Any:
-    from peft import LoraConfig, get_peft_model
-
-    peft_cfg = config["peft"]
-    n_llm_layers = model.config.text_config.num_hidden_layers
-    lora_config = LoraConfig(
-        r=peft_cfg["lora_r"],
-        lora_alpha=peft_cfg["lora_alpha"],
-        lora_dropout=peft_cfg.get("lora_dropout", 0.05),
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=peft_cfg["target_modules"],
-        layers_to_transform=list(range(n_llm_layers)),
-        layers_pattern="layers",
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            r=cfg.lora_r,
+            lora_alpha=cfg.lora_alpha,
+            lora_dropout=cfg.lora_dropout,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=list(cfg.target_modules),
+        ),
     )
-    return get_peft_model(model, lora_config)
-
-
-def trainable_summary(model: Any) -> dict[str, float]:
-    trainable = sum(
-        param.numel() for param in model.parameters() if param.requires_grad
-    )
-    total = sum(param.numel() for param in model.parameters())
-    return {
-        "trainable_params": float(trainable),
-        "total_params": float(total),
-        "trainable_pct": (100.0 * trainable / total) if total else 0.0,
-    }
-
-
-def build_model_and_processor(
-    config: Mapping[str, Any], model_path: str | Path
-) -> tuple[Any, Any]:
-    from ..config import requires_peft
-
-    model = load_base_model(config, model_path)
-    processor = load_processor(model_path, config["finetuning"])
-    if requires_peft(config):
-        model = apply_peft(model, config)
+    model.print_trainable_parameters()
     return model, processor
+
+
+def _find_last_subsequence(seq: list[int], sub: list[int]) -> int:
+    for start in range(len(seq) - len(sub), -1, -1):
+        if seq[start : start + len(sub)] == sub:
+            return start
+    return -1
+
+
+class QwenVLCollator:
+    def __init__(self, processor: Any, max_length: int):
+        self.processor = processor
+        self.tokenizer = processor.tokenizer
+        self.max_length = max_length
+        self.assistant_ids = self.tokenizer.encode(
+            "<|im_start|>assistant\n", add_special_tokens=False
+        )
+
+    def __call__(self, examples: list[dict[str, Any]]) -> dict[str, Any]:
+        from PIL import Image
+
+        texts, images_batch = [], []
+        for example in examples:
+            texts.append(
+                self.processor.apply_chat_template(
+                    example["messages"],
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    enable_thinking=False,
+                )
+            )
+            images_batch.append(
+                [Image.open(path).convert("RGB") for path in example["images"]]
+            )
+
+        batch = self.processor(
+            text=texts,
+            images=images_batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+        )
+
+        labels = batch["input_ids"].clone()
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        for i in range(labels.size(0)):
+            row = batch["input_ids"][i].tolist()
+            start = _find_last_subsequence(row, self.assistant_ids)
+            if start == -1:
+                labels[i, :] = -100
+            else:
+                labels[i, : start + len(self.assistant_ids)] = -100
+        batch["labels"] = labels
+        return batch
+
+
+def sequence_length_probe(
+    processor: Any, records: list[dict[str, Any]], max_seq_length: int, sample: int = 64
+) -> dict[str, int]:
+    import numpy as np
+    from PIL import Image
+
+    lengths = []
+    for example in records[:sample]:
+        text = processor.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+            add_generation_prompt=False,
+            enable_thinking=False,
+        )
+        images = [Image.open(p).convert("RGB") for p in example["images"]]
+        lengths.append(
+            processor(text=[text], images=[images], return_tensors="pt")[
+                "input_ids"
+            ].shape[1]
+        )
+    stats = {
+        "min": int(min(lengths)),
+        "median": int(np.median(lengths)),
+        "max": int(max(lengths)),
+        "max_seq_length": int(max_seq_length),
+    }
+    if stats["max"] > max_seq_length:
+        print(
+            f"  ⚠️  lunghezza massima {stats['max']} > max_seq_length {max_seq_length}: "
+            "alcune risposte verranno TRONCATE → alza max_seq_length."
+        )
+    else:
+        print(f"  ✓ tutte sotto max_seq_length ({max_seq_length}): nessun troncamento.")
+    return stats
