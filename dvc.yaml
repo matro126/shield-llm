@@ -1,13 +1,176 @@
+# dvc.yaml: 8 build (4 combinazioni viste×target × 2 lingue) + sanity_check.
 stages:
-  preprocess_iu_xray_v1.0:
-    cmd: uv run python scripts/data/preprocessing/iu-xray/run.py
-      --config scripts/data/preprocessing/iu-xray/config_iu-xray_v1.0.yaml
+  build_iu_xray_en_F_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_F-F
     deps:
-      - scripts/data/preprocessing/iu-xray/run.py
-      - scripts/data/preprocessing/iu-xray/config_iu-xray_v1.0.yaml
-      - src/shield/data/preprocessing.py
-      - dataset/iu-xray/original
-      - dataset/iu-xray/iu_xray_r2gen/annotation.json
-      - dataset/iu-xray/iu_xray_r2gen/images
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
     outs:
-      - dataset/iu-xray/iu-xray_v1.0
+      - dataset/iu-xray/en/iu_xray_en_F-F
+
+  build_iu_xray_en_F_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_F-FI
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/en/iu_xray_en_F-FI
+
+  build_iu_xray_en_FL_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_FL-F
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/en/iu_xray_en_FL-F
+
+  build_iu_xray_en_FL_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_FL-FI
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/en/iu_xray_en_FL-FI
+
+  build_iu_xray_it_F_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_F-F
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/ita/iu_xray_it_F-F
+
+  build_iu_xray_it_F_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_F-FI
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/ita/iu_xray_it_F-FI
+
+  build_iu_xray_it_FL_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_FL-F
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/ita/iu_xray_it_FL-F
+
+  build_iu_xray_it_FL_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_FL-FI
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+      - dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      - dataset/iu-xray/iu_xray_r2gen_final/images
+      - dataset/iu-xray/iu_xray_translated.csv
+    outs:
+      - dataset/iu-xray/ita/iu_xray_it_FL-FI
+
+  sanity_check:
+    cmd: uv run python -m shield.data.sanity_check
+    deps:
+      - src/shield/data/build.py
+      - src/shield/data/images.py
+      - src/shield/data/openi.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/data/sanity_check.py
+      - src/shield/data/text_source.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - dataset/iu-xray/en/iu_xray_en_F-F
+      - dataset/iu-xray/en/iu_xray_en_F-FI
+      - dataset/iu-xray/en/iu_xray_en_FL-F
+      - dataset/iu-xray/en/iu_xray_en_FL-FI
+      - dataset/iu-xray/ita/iu_xray_it_F-F
+      - dataset/iu-xray/ita/iu_xray_it_F-FI
+      - dataset/iu-xray/ita/iu_xray_it_FL-F
+      - dataset/iu-xray/ita/iu_xray_it_FL-FI
+    always_changed: true

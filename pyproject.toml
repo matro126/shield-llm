@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Fine-tuning and experiment tracking workflow for SHIELD"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+# Nota: accelerate, bitsandbytes, peft, trl, qwen-vl-utils e torchvision non sono
+# importati da src/shield — servono al fine-tuning QLoRA, che vive nei notebook.
 dependencies = [
     "accelerate>=1.13.0",
     "bert-score>=0.3.13",
@@ -13,11 +15,12 @@ dependencies = [
     "f1chexbert>=0.0.2",  # CheXBERT label F1 (§3.8.1) — checkpoint radiologia EN
     "jupyter>=1.1.1",
     "mlflow>=3",
+    "numpy>=2.1",  # proxy di simmetria e aggregazione metriche
     "nvidia-cudnn-cu12>=9.10,<10; sys_platform == 'linux'",
-    "pandas>=2.2,<3",
     "peft>=0.18.1",
     "pillow>=12.1.1",
     "pycocoevalcap>=1.2",  # BLEU coco-caption (§3.8.1) — confrontabile con R2Gen
+    "pyyaml>=6.0",  # config e manifest dei dataset
     "qwen-vl-utils>=0.0.14",
     "rouge-score>=0.1.2",
     "scikit-learn>=1.8.0",

@@ -1,0 +1,581 @@
+schema: '2.0'
+stages:
+  build_iu_xray_en_F_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_F-F
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/en/iu_xray_en_F-F
+      hash: md5
+      md5: b14d1b26fa73143191e8c77230c946cb.dir
+      size: 454794429
+      nfiles: 2944
+  build_iu_xray_en_F_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_F-FI
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/en/iu_xray_en_F-FI
+      hash: md5
+      md5: d102abb3ffd8429674465736f27aa912.dir
+      size: 455644909
+      nfiles: 2944
+  build_iu_xray_en_FL_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_FL-F
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/en/iu_xray_en_FL-F
+      hash: md5
+      md5: f24ccec471fa321aff2a2d7c3cb3f13e.dir
+      size: 875818328
+      nfiles: 5883
+  build_iu_xray_en_FL_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_en_FL-FI
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/en/iu_xray_en_FL-FI
+      hash: md5
+      md5: 376f760def94d5bd03dbbbc36ef738bf.dir
+      size: 876668808
+      nfiles: 5883
+  build_iu_xray_it_F_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_F-F
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/ita/iu_xray_it_F-F
+      hash: md5
+      md5: 630864e5427072697e677058e633d7b7.dir
+      size: 455015454
+      nfiles: 2944
+  build_iu_xray_it_F_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_F-FI
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/ita/iu_xray_it_F-FI
+      hash: md5
+      md5: cc099c69b39cb8ee3875e993597df7b8.dir
+      size: 455895499
+      nfiles: 2944
+  build_iu_xray_it_FL_F:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_FL-F
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/ita/iu_xray_it_FL-F
+      hash: md5
+      md5: 08c9fbef2d104b6519a48ed70a5c99a6.dir
+      size: 876083457
+      nfiles: 5883
+  build_iu_xray_it_FL_FI:
+    cmd: uv run python -m shield.data.build --version iu_xray_it_FL-FI
+    deps:
+    - path: dataset/iu-xray/iu_xray_r2gen_final/annotation.json
+      hash: md5
+      md5: 336da19efd0929c47eb0e91a4fcb1099
+      size: 1208134
+    - path: dataset/iu-xray/iu_xray_r2gen_final/images
+      hash: md5
+      md5: 316874b8195dfba428ea2ceeb18558d5.dir
+      size: 1110202617
+      nfiles: 6059
+    - path: dataset/iu-xray/iu_xray_translated.csv
+      hash: md5
+      md5: c150dccb04191754062515d4b7880e4c
+      size: 2873777
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
+    - path: uv.lock
+      hash: md5
+      md5: 9cf668cea04914802a822f7c73908929
+      size: 363486
+    outs:
+    - path: dataset/iu-xray/ita/iu_xray_it_FL-FI
+      hash: md5
+      md5: 57b72ee0e55f50ae7b89ed7894d344eb.dir
+      size: 876963498
+      nfiles: 5883
+  sanity_check:
+    cmd: uv run python -m shield.data.sanity_check
+    deps:
+    - path: dataset/iu-xray/en/iu_xray_en_F-F
+      hash: md5
+      md5: b14d1b26fa73143191e8c77230c946cb.dir
+      size: 454794429
+      nfiles: 2944
+    - path: dataset/iu-xray/en/iu_xray_en_F-FI
+      hash: md5
+      md5: d102abb3ffd8429674465736f27aa912.dir
+      size: 455644909
+      nfiles: 2944
+    - path: dataset/iu-xray/en/iu_xray_en_FL-F
+      hash: md5
+      md5: f24ccec471fa321aff2a2d7c3cb3f13e.dir
+      size: 875818328
+      nfiles: 5883
+    - path: dataset/iu-xray/en/iu_xray_en_FL-FI
+      hash: md5
+      md5: 376f760def94d5bd03dbbbc36ef738bf.dir
+      size: 876668808
+      nfiles: 5883
+    - path: dataset/iu-xray/ita/iu_xray_it_F-F
+      hash: md5
+      md5: 630864e5427072697e677058e633d7b7.dir
+      size: 455015454
+      nfiles: 2944
+    - path: dataset/iu-xray/ita/iu_xray_it_F-FI
+      hash: md5
+      md5: cc099c69b39cb8ee3875e993597df7b8.dir
+      size: 455895499
+      nfiles: 2944
+    - path: dataset/iu-xray/ita/iu_xray_it_FL-F
+      hash: md5
+      md5: 08c9fbef2d104b6519a48ed70a5c99a6.dir
+      size: 876083457
+      nfiles: 5883
+    - path: dataset/iu-xray/ita/iu_xray_it_FL-FI
+      hash: md5
+      md5: 57b72ee0e55f50ae7b89ed7894d344eb.dir
+      size: 876963498
+      nfiles: 5883
+    - path: src/shield/data/build.py
+      hash: md5
+      md5: fdde1d33e705965182e010fb817851be
+      size: 12999
+    - path: src/shield/data/images.py
+      hash: md5
+      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
+      size: 1139
+    - path: src/shield/data/openi.py
+      hash: md5
+      md5: de6f2d9fc0e3368401050986e539d169
+      size: 8363
+    - path: src/shield/data/prompts.py
+      hash: md5
+      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
+      size: 10660
+    - path: src/shield/data/records.py
+      hash: md5
+      md5: cf71fcd0e437397f4aca48887db553a3
+      size: 2278
+    - path: src/shield/data/sanity_check.py
+      hash: md5
+      md5: c0531e45e8373cad9b86437e7b200903
+      size: 15658
+    - path: src/shield/data/text_source.py
+      hash: md5
+      md5: 113b3517d2035ebe861c69dd120c6e3f
+      size: 2336
+    - path: src/shield/tracking/__init__.py
+      hash: md5
+      md5: 47cf22a844f3dcf5f40520185da91668
+      size: 1063
+    - path: src/shield/tracking/core.py
+      hash: md5
+      md5: c14bd3fa78a792dac5215848e26dc650
+      size: 7342
+    - path: src/shield/tracking/provenance.py
+      hash: md5
+      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
+      size: 4149
