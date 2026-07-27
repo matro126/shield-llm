@@ -1,15 +1,16 @@
 .DS_Store
-.ipynb_checkpoints/
 __pycache__/
 *.py[cod]
-*.md
-
-docs/
+.ipynb_checkpoints/
 
 .venv/
 .venv-*/
 .uv-cache/
+
 .vscode/
+.claude/
+.superpowers/
+docs/
 
 data/**
 !data/**/
@@ -32,6 +33,7 @@ models/**
 !models/.gitkeep
 !models/**/*.dvc
 !models/**/.gitignore
+!models/**/model_card.md
 !models/README.md
 
 outputs/**
@@ -41,9 +43,13 @@ outputs/**
 !outputs/**/.gitignore
 !outputs/README.md
 
+dvc-dataset/
+
 mlflow/**
-!mlflow/**/
 !mlflow/.gitkeep
 !mlflow/README.md
 
-tests/
+
+training/**/results/
+
+scripts/*/out/
