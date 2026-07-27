@@ -1,9 +1,42 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
+
+_CHUNK = 1 << 20
+
+
+def sha256_bytes(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return sha256_bytes(text.encode("utf-8"))
+
+
+def sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def sha256_tree(root: str | Path, pattern: str = "*") -> str:
+    base = Path(root)
+    if not base.is_dir():
+        return "sha256:absent"
+    digest = hashlib.sha256()
+    for path in sorted(base.rglob(pattern)):
+        if not path.is_file():
+            continue
+        digest.update(str(path.relative_to(base)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return "sha256:" + digest.hexdigest()
 
 
 def _git(args: list[str], cwd: Path) -> str | None:

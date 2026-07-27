@@ -20,6 +20,10 @@ from .provenance import (
     dataset_provenance,
     dvc_dataset_hash,
     git_metadata,
+    sha256_bytes,
+    sha256_file,
+    sha256_text,
+    sha256_tree,
 )
 
 __all__ = [
@@ -41,5 +45,9 @@ __all__ = [
     "log_tags",
     "log_trainer_state",
     "mlflow_run",
+    "sha256_bytes",
+    "sha256_file",
+    "sha256_text",
+    "sha256_tree",
     "stringify_param",
 ]
