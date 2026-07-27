@@ -1,9 +1,54 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 
 _ROUGE_TYPES = ["rouge1", "rouge2", "rougeL"]
+
+
+@lru_cache(maxsize=4)
+def _bert_scorer(model_type: str, num_layers: int, lang: str):
+    from bert_score import BERTScorer
+
+    return BERTScorer(
+        model_type=model_type, num_layers=num_layers, lang=lang, idf=False
+    )
+
+
+@lru_cache(maxsize=4)
+def _clinical_scorer(model_type: str, num_layers: int):
+    from bert_score import BERTScorer
+
+    scorer = BERTScorer(model_type=model_type, num_layers=num_layers, idf=False)
+    if scorer._tokenizer.model_max_length > 10**6:
+        scorer._tokenizer.model_max_length = min(
+            getattr(scorer._model.config, "max_position_embeddings", 512), 512
+        )
+    return scorer
+
+
+@lru_cache(maxsize=2)
+def _chexbert_labeler(device: str | None):
+    from f1chexbert import F1CheXbert
+
+    _ensure_chexbert_checkpoint()
+    labeler = F1CheXbert(device=device)
+
+    tokenizer = getattr(labeler, "tokenizer", None)
+    if tokenizer is not None and not hasattr(tokenizer, "encode_plus"):
+
+        def _encode_plus(text: list[str], **_kwargs: object) -> dict[str, list[int]]:
+            ids = tokenizer.convert_tokens_to_ids(text)
+            return {"input_ids": [tokenizer.cls_token_id, *ids, tokenizer.sep_token_id]}
+
+        tokenizer.encode_plus = _encode_plus
+    return labeler
+
+
+def clear_metric_models() -> None:
+    for cached in (_bert_scorer, _clinical_scorer, _chexbert_labeler):
+        cached.cache_clear()
 
 
 def corpus_bleu(predictions: list[str], references: list[str]) -> dict[str, float]:
@@ -49,13 +94,29 @@ def rouge_scores(predictions: list[str], references: list[str]) -> dict[str, flo
     return {rouge_type: accumulator[rouge_type] / count for rouge_type in _ROUGE_TYPES}
 
 
+def _nonempty_pairs(
+    predictions: list[str], references: list[str]
+) -> tuple[list[str], list[str], list[int]]:
+    keep = [
+        i
+        for i in range(len(predictions))
+        if predictions[i].strip() and references[i].strip()
+    ]
+    return [predictions[i] for i in keep], [references[i] for i in keep], keep
+
+
+def _mean_with_zeros(values, total: int) -> float:
+    if total == 0:
+        return 0.0
+    return float(values.sum().item() / total)
+
+
 def bertscore_f1(
     predictions: list[str],
     references: list[str],
     model_type: str = "xlm-roberta-large",
     lang: str = "en",
 ) -> dict[str, float]:
-    from bert_score import score as bert_score_fn
     from bert_score.utils import model2layers
 
     num_layers = model2layers.get(model_type) or model2layers.get(Path(model_type).name)
@@ -67,18 +128,17 @@ def bertscore_f1(
             f"confrontabili con le run precedenti."
         )
 
-    precision, recall, f1 = bert_score_fn(
-        predictions,
-        references,
-        model_type=model_type,
-        num_layers=num_layers,
-        lang=lang,
-        verbose=False,
-    )
+    keys = ("bertscore_precision", "bertscore_recall", "bertscore_f1")
+    preds, refs, keep = _nonempty_pairs(predictions, references)
+    if not keep:
+        return dict.fromkeys(keys, 0.0)
+
+    precision, recall, f1 = _bert_scorer(model_type, num_layers, lang).score(preds, refs)
+    total = len(predictions)
     return {
-        "bertscore_precision": precision.mean().item(),
-        "bertscore_recall": recall.mean().item(),
-        "bertscore_f1": f1.mean().item(),
+        "bertscore_precision": _mean_with_zeros(precision, total),
+        "bertscore_recall": _mean_with_zeros(recall, total),
+        "bertscore_f1": _mean_with_zeros(f1, total),
     }
 
 
@@ -88,23 +148,22 @@ def clinicalbert_similarity(
     model_type: str = "emilyalsentzer/Bio_ClinicalBERT",
     num_layers: int | None = None,
 ) -> dict[str, float]:
-    from bert_score import BERTScorer
-
     if num_layers is None:
         from transformers import AutoConfig
 
         num_layers = AutoConfig.from_pretrained(model_type).num_hidden_layers
 
-    scorer = BERTScorer(model_type=model_type, num_layers=num_layers)
-    if scorer._tokenizer.model_max_length > 10**6:
-        scorer._tokenizer.model_max_length = min(
-            getattr(scorer._model.config, "max_position_embeddings", 512), 512
-        )
-    precision, recall, f1 = scorer.score(predictions, references)
+    keys = ("clinicalbert_precision", "clinicalbert_recall", "clinicalbert_f1")
+    preds, refs, keep = _nonempty_pairs(predictions, references)
+    if not keep:
+        return dict.fromkeys(keys, 0.0)
+
+    precision, recall, f1 = _clinical_scorer(model_type, num_layers).score(preds, refs)
+    total = len(predictions)
     return {
-        "clinicalbert_precision": precision.mean().item(),
-        "clinicalbert_recall": recall.mean().item(),
-        "clinicalbert_f1": f1.mean().item(),
+        "clinicalbert_precision": _mean_with_zeros(precision, total),
+        "clinicalbert_recall": _mean_with_zeros(recall, total),
+        "clinicalbert_f1": _mean_with_zeros(f1, total),
     }
 
 
@@ -135,25 +194,16 @@ def chexbert_f1(
     references: list[str],
     device: str | None = None,
 ) -> dict[str, float]:
-    from f1chexbert import F1CheXbert
-
-    _ensure_chexbert_checkpoint()
-    labeler = F1CheXbert(device=device)
-
-    tokenizer = getattr(labeler, "tokenizer", None)
-    if tokenizer is not None and not hasattr(tokenizer, "encode_plus"):
-
-        def _encode_plus(text: list[str], **_kwargs: object) -> dict[str, list[int]]:
-            ids = tokenizer.convert_tokens_to_ids(text)
-            return {"input_ids": [tokenizer.cls_token_id, *ids, tokenizer.sep_token_id]}
-
-        tokenizer.encode_plus = _encode_plus
+    labeler = _chexbert_labeler(device)
 
     import numpy as np
     from sklearn.metrics import accuracy_score, classification_report
 
-    refs_arr = np.array([labeler.get_label(text.strip()) for text in references])
-    hyps_arr = np.array([labeler.get_label(text.strip()) for text in predictions])
+    def _labelable(text: str) -> str:
+        return text.strip() or "."
+
+    refs_arr = np.array([labeler.get_label(_labelable(t)) for t in references])
+    hyps_arr = np.array([labeler.get_label(_labelable(t)) for t in predictions])
     top5 = labeler.target_names_5_index
     refs_5, hyps_5 = refs_arr[:, top5], hyps_arr[:, top5]
 
