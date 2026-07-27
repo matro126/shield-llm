@@ -1,4 +1,3 @@
-from .collator import XRayDataCollator
 from .loaders import (
     dataset_summary,
     extract_assistant_text,
@@ -13,7 +12,6 @@ from .loaders import (
 )
 
 __all__ = [
-    "XRayDataCollator",
     "dataset_summary",
     "extract_assistant_text",
     "extract_factors",
