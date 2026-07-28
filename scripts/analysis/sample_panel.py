@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fnmatch
 import json
 import re
 import sys
@@ -162,48 +163,83 @@ def analizza(record: dict[str, dict], pred: dict[str, dict]) -> dict:
     }
 
 
-def relazione(split: str, record: dict[str, dict], panel: list[str],
-              esp: list[tuple[str, dict[str, dict]]], out: Path, righe_max: int) -> None:
-    md = [f"# Pannello di confronto — {split}", "",
-          f"{len(panel)} studi fissi, scelti in modo deterministico: "
-          f"{sum(1 for k in panel if record[k]['categorie'] == ['No Finding'])} senza patologia "
-          f"e {sum(1 for k in panel if record[k]['categorie'] != ['No Finding'])} con patologie "
-          f"diverse. {len(esp)} esperimenti confrontati.", "",
+def patologia_citata(categorie: list[str], testo: str) -> str:
+    trovate = [c for c in categorie if c in TERMINI
+               and re.search(TERMINI[c], testo, re.I)]
+    return ",".join(trovate)
+
+
+def righe_csv(record: dict[str, dict], esp: list[tuple[str, dict[str, dict]]]) -> list[dict]:
+    out = []
+    for sid in sorted(record):
+        r = record[sid]
+        sano = r["categorie"] == ["No Finding"]
+        for nome, pred in esp:
+            p = pred.get(sid)
+            if not p:
+                continue
+            impr = p["impression"] or p["findings"]
+            out.append({
+                "id": sid,
+                "categorie": "|".join(r["categorie"]),
+                "sano": "si" if sano else "no",
+                "esperimento": nome,
+                "rif_findings": r["riferimento_findings"],
+                "rif_impression": r["riferimento_impression"],
+                "gen_findings": p["findings"],
+                "gen_impression": p["impression"],
+                "impressione_negativa": "si" if NEGATIVA.search(impr) else "no",
+                "patologie_citate": patologia_citata(r["categorie"],
+                                                     p["findings"] + " " + p["impression"]),
+            })
+    return out
+
+
+def relazione(split: str, record: dict[str, dict], mostrati: list[str],
+              esp: list[tuple[str, dict[str, dict]]], out: Path) -> None:
+    md = [f"# Confronto fra modelli — {split}", "",
+          f"{len(mostrati)} studi mostrati per esteso su {len(record)} dello split. "
+          f"{len(esp)} esperimenti.", "",
           "## Comportamento sull'INTERO split", "",
-          "Non sul pannello: su tutti gli studi. `falsi negativi` è la quota di studi "
-          "**patologici** per cui il modello produce comunque un'impressione negativa; "
-          "`patologie citate` quante delle categorie presenti compaiono nel testo generato.", "",
+          "`falsi negativi` e' la quota di studi **patologici** per cui il modello produce "
+          "comunque un'impressione negativa. `patologie citate` conta i termini della "
+          "categoria presenti nel testo, **senza distinguere le negazioni**: e' un limite "
+          "superiore, non la sensibilita' reale.", "",
           "| esperimento | sani | impressione negativa | patologici | falsi negativi | patologie citate |",
           "|---|---|---|---|---|---|"]
-    misure = {}
     for nome, pred in esp:
         a = analizza(record, pred)
-        misure[nome] = a
         md.append(f"| {nome} | {a['sani']} | {a['quota_sani_neg']:.1%} | {a['malati']} | "
                   f"**{a['falsi_negativi']:.1%}** | {a['patologie_citate']:.1%} |")
 
-    md += ["", "## Gli studi del pannello", ""]
-    for sid in panel:
+    md += ["", "---", ""]
+    for sid in mostrati:
         r = record[sid]
-        cat = ", ".join(r["categorie"])
-        md += [f"### `{sid}` — {cat}", "",
-               f"**Riferimento — reperti**  \n{r['riferimento_findings']}", ""]
+        stato = "SANO" if r["categorie"] == ["No Finding"] else "PATOLOGICO"
+        md += [f"## `{sid}` — {stato} — {', '.join(r['categorie'])}", "",
+               "### Riferimento", "",
+               "**Reperti**", "", r["riferimento_findings"] or "_assenti_", ""]
         if r["riferimento_impression"]:
-            md += [f"**Riferimento — impressione**  \n{r['riferimento_impression']}", ""]
-        md += ["| esperimento | impressione generata | reperti (inizio) |", "|---|---|---|"]
-        for nome, pred in esp[:righe_max]:
+            md += ["**Impressione**", "", r["riferimento_impression"], ""]
+        md += ["### Generati", ""]
+        for nome, pred in esp:
             p = pred.get(sid)
+            md += [f"**{nome}**", ""]
             if not p:
-                md.append(f"| {nome} | _assente_ | |")
+                md += ["_nessuna predizione_", ""]
                 continue
-            impr = (p["impression"] or "—").replace("|", "/")
-            find = (p["findings"] or "—").replace("|", "/")
-            md.append(f"| {nome} | {impr[:110]} | {find[:90]} |")
-        md.append("")
+            md += ["*Reperti* — " + (p["findings"] or "_assenti_"), ""]
+            if p["impression"]:
+                md += ["*Impressione* — " + p["impression"], ""]
+        md += ["---", ""]
     out.write_text("\n".join(md), encoding="utf-8")
 
+
+def stampa(split: str, record: dict[str, dict],
+           esp: list[tuple[str, dict[str, dict]]]) -> None:
     print(f"\n═══ {split.upper()}  ({len(record)} studi, {len(esp)} esperimenti)")
     print(f"  {'esperimento':<24}{'sani neg.':>11}{'falsi neg.':>12}{'patol. citate':>15}")
+    misure = {nome: analizza(record, pred) for nome, pred in esp}
     for nome, a in sorted(misure.items(), key=lambda kv: kv[1]["falsi_negativi"]):
         print(f"  {nome:<24}{a['quota_sani_neg']:>10.1%}{a['falsi_negativi']:>12.1%}"
               f"{a['patologie_citate']:>15.1%}")
@@ -217,7 +253,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "training" / "results" / "panel")
     parser.add_argument("--sani", type=int, default=15)
     parser.add_argument("--malati", type=int, default=15)
-    parser.add_argument("--esperimenti-in-tabella", type=int, default=24)
+    parser.add_argument("--tutti", action="store_true",
+                        help="mostra per esteso tutti gli studi dello split, non i 30 del pannello")
+    parser.add_argument("--solo", action="append", default=[],
+                        help="glob sul nome esperimento, ripetibile")
     args = parser.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -228,11 +267,26 @@ def main(argv: list[str] | None = None) -> int:
         if not esp:
             print(f"  {split}: nessuna predizione disponibile, saltato")
             continue
+        if args.solo:
+            esp = [(n, p) for n, p in esp
+                   if any(fnmatch.fnmatch(n, g) for g in args.solo)]
+            if not esp:
+                print(f"  {split}: nessun esperimento corrisponde a {args.solo}")
+                continue
+        mostrati = sorted(record) if args.tutti else panel
         conteggio = Counter(c for k in panel for c in record[k]["categorie"])
         print(f"\n  pannello {split}: {len(panel)} studi — " +
               ", ".join(f"{c} {n}" for c, n in conteggio.most_common()))
-        relazione(split, record, panel, esp,
-                  args.out / f"{split}.md", args.esperimenti_in_tabella)
+        if args.tutti:
+            print(f"  --tutti: nel markdown finiscono tutti i {len(record)} studi")
+        relazione(split, record, mostrati, esp, args.out / f"{split}.md")
+        righe = righe_csv(record, esp)
+        with (args.out / f"{split}_predizioni.csv").open(
+                "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(righe[0]))
+            w.writeheader(); w.writerows(righe)
+        print(f"  csv: {len(righe)} righe (studio × esperimento)")
+        stampa(split, record, esp)
     print(f"\nscritti in {args.out}")
     return 0
 
