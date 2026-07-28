@@ -83,6 +83,7 @@ RUN_ARTIFACTS = (
     "val_predictions_best.csv",
     "val_predictions",
     "best_adapter",
+    "test",
 )
 
 
@@ -192,7 +193,9 @@ def run_experiment(
     if cfg.mlflow_enabled:
         import mlflow  # noqa: F401
 
-        print(f"  mlflow    : {cfg.mlflow_tracking_uri or 'default (env o 127.0.0.1:5000)'}")
+        print(
+            f"  mlflow    : {cfg.mlflow_tracking_uri or 'default (env o 127.0.0.1:5000)'}"
+        )
 
     root = project_root / cfg.dataset_root
     if not root.is_dir():
@@ -265,7 +268,10 @@ def run_experiment(
 
         tracking_config = {
             "experiment": {"name": cfg.experiment},
-            "dataset": {"root": cfg.dataset_root, "version": Path(cfg.dataset_root).name},
+            "dataset": {
+                "root": cfg.dataset_root,
+                "version": Path(cfg.dataset_root).name,
+            },
             "model": {"base_model": cfg.base_model, "mode": cfg.mode},
             "training": cfg.as_dict(),
             "mlflow": {
@@ -313,8 +319,15 @@ def run_experiment(
             writer.flush()
 
         stopper = GenerativeEvalEarlyStop(
-            cfg, dash, processor, collator, val_records, results, project_root,
-            writer, mlflow_mod,
+            cfg,
+            dash,
+            processor,
+            collator,
+            val_records,
+            results,
+            project_root,
+            writer,
+            mlflow_mod,
         )
         args = TrainingArguments(
             output_dir=str(results / "checkpoints"),
@@ -357,8 +370,9 @@ def run_experiment(
             writer.set_in("environment", **_vram_peak())
             writer.set_curves(dash.train_rows, stopper.history)
             writer.set_best(stopper.best_payload())
-            writer.set_in("timing", finished_at=now_iso(),
-                          wall_clock_s=round(time.time() - t0, 1))
+            writer.set_in(
+                "timing", finished_at=now_iso(), wall_clock_s=round(time.time() - t0, 1)
+            )
             writer.flush()
             if cfg.archive_results:
                 archive_results(results, "failed", cfg.archive_adapter)
@@ -374,8 +388,11 @@ def run_experiment(
         writer.set(
             n_evaluations=len(stopper.history),
             early_stopped=early_stopped,
-            epochs_completed=round(float(dash.train_rows[-1]["epoch"]), 3)
-            if dash.train_rows else 0.0,
+            epochs_completed=(
+                round(float(dash.train_rows[-1]["epoch"]), 3)
+                if dash.train_rows
+                else 0.0
+            ),
         )
         writer.set_in(
             "timing",
@@ -412,8 +429,12 @@ def run_experiment(
             for key, value in vram.items():
                 if isinstance(value, (int, float)):
                     mlflow_mod.log_metric(f"operational.{key}", float(value))
-            for name in ("results.json", "train_history.csv", "val_history.csv",
-                         "val_predictions_best.csv"):
+            for name in (
+                "results.json",
+                "train_history.csv",
+                "val_history.csv",
+                "val_predictions_best.csv",
+            ):
                 path = results / name
                 if path.is_file():
                     mlflow_mod.log_artifact(str(path), artifact_path="training")
@@ -428,13 +449,17 @@ def run_experiment(
     print(f"TEMPO TOTALE          : {hms(summary['timing']['wall_clock_s'])}")
     print(f"valutazioni eseguite  : {summary['n_evaluations']}")
     if best:
-        print(f"best {cfg.monitor_metric:<17}: {best['value']:.4f}  "
-              f"@ epoca {best['epoch']} / step {best['step']}")
+        print(
+            f"best {cfg.monitor_metric:<17}: {best['value']:.4f}  "
+            f"@ epoca {best['epoch']} / step {best['step']}"
+        )
     print(f"early stopping        : {'si' if summary['early_stopped'] else 'no'}")
     if vram:
-        print(f"VRAM picco            : {vram['vram_peak_reserved_gb']:.1f} GB riservati "
-              f"({vram['vram_peak_allocated_gb']:.1f} allocati) "
-              f"su {vram['vram_total_gb']:.0f} GB")
+        print(
+            f"VRAM picco            : {vram['vram_peak_reserved_gb']:.1f} GB riservati "
+            f"({vram['vram_peak_allocated_gb']:.1f} allocati) "
+            f"su {vram['vram_total_gb']:.0f} GB"
+        )
     print(f"risultati             : {results / 'results.json'}")
     if archived is not None:
         print(f"archiviata copia in   : {archived.relative_to(project_root)}")

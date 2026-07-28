@@ -12,6 +12,9 @@ __pycache__/
 .superpowers/
 docs/
 
+report/
+training/campaign_report*.json
+
 data/**
 !data/**/
 !data/.gitkeep

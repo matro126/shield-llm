@@ -55,11 +55,14 @@ def _git(args: list[str], cwd: Path) -> str | None:
 def git_metadata(root: str | Path = ".") -> dict[str, str | bool | int | None]:
     cwd = Path(root)
     status = _git(["status", "--short"], cwd) or ""
+    righe = [line for line in status.splitlines() if line.strip()]
     return {
         "git.commit": _git(["rev-parse", "HEAD"], cwd),
         "git.branch": _git(["branch", "--show-current"], cwd),
         "git.is_dirty": bool(status),
-        "git.changed_files": len([line for line in status.splitlines() if line]),
+        "git.changed_files": len(righe),
+        "git.dirty_files": [r.strip() for r in righe[:30]],
+        "git.dirty_truncated": len(righe) > 30,
     }
 
 
