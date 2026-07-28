@@ -13,9 +13,9 @@ DATASETS = ["F-F", "FL-F", "F-FI", "FL-FI"]
 MODELS = ["2B", "8B", "32B"]
 
 
-def load() -> list[dict]:
+def load(training_root: Path) -> list[dict]:
     rows = []
-    for path in sorted(ROOT.glob("training/*/*/baseline/*/results/metrics.json")):
+    for path in sorted(training_root.glob("*/*/baseline/*/results/metrics.json")):
         m = json.loads(path.read_text(encoding="utf-8"))
         ident = m.get("identity", {})
         mean = (m.get("by_section") or {}).get("mean") or {}
@@ -41,7 +41,7 @@ def load() -> list[dict]:
                 "lat_p95": oper.get("latency_p95_s"),
                 "mlflow": bool(m.get("mlflow_run_id")),
                 "modello_caricato": ident.get("model", "?"),
-                "cartella": str(path.parents[2].relative_to(ROOT)),
+                "cartella": str(path.parents[2]),
                 "cartella_modello": path.parents[3].name,
             }
         )
@@ -230,10 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    parser.add_argument("--training-root", type=Path, default=ROOT / "training")
     parser.add_argument("--out", type=Path, default=ROOT / "training" / "results")
     args = parser.parse_args(argv)
 
-    rows = load()
+    rows = load(args.training_root)
     if not rows:
         print("Nessuna baseline trovata: sono gia' state eseguite?", file=sys.stderr)
         return 1

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,10 +44,14 @@ def titolo(testo: str) -> None:
     print("=" * 78)
 
 
-def main() -> int:
-    runs = [(p, r) for p in sorted(ROOT.glob("training/it/*/*/*/results/results.json"))
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--training-root", type=Path, default=ROOT / "training")
+    args = parser.parse_args(argv)
+    radice = args.training_root
+    runs = [(p, r) for p in sorted(radice.glob("it/*/*/*/results/results.json"))
             if (r := leggi(p))]
-    baselines = [(p, m) for p in sorted(ROOT.glob("training/it/*/baseline/*/results/metrics.json"))
+    baselines = [(p, m) for p in sorted(radice.glob("it/*/baseline/*/results/metrics.json"))
                  if (m := leggi(p))]
 
     titolo("A. INVENTARIO")
