@@ -14,6 +14,7 @@ dependencies = [
     "dvc>=3.67.1",
     "f1chexbert>=0.0.2",  # CheXBERT label F1 (§3.8.1) — checkpoint radiologia EN
     "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
     "mlflow>=3",
     "numpy>=2.1",  # proxy di simmetria e aggregazione metriche
     "nvidia-cudnn-cu12>=9.10,<10; sys_platform == 'linux'",
