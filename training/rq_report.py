@@ -142,11 +142,14 @@ def confronto_appaiato(
             ]
         )
     testo = tabella([etichetta, a, b, f"Δ ({b}−{a})", "migliore"], dati)
+    grezzi = [(" · ".join(chiave(ra)), valore(ra, metrica, sezione),
+               valore(rb, metrica, sezione)) for ra, rb in coppie]
     sintesi = {
         "n": len(delta),
         "media": statistics.fmean(delta) if delta else None,
         "mediana": statistics.median(delta) if delta else None,
         "vittorie_b": sum(1 for d in delta if d > 0),
+        "coppie": grezzi,
     }
     return testo, sintesi
 
@@ -231,6 +234,37 @@ def g_barre(righe: list[dict], metrica: str, out: Path, nome: str, titolo: str) 
     ax.set_title(titolo)
     ax.legend(fontsize=8, ncol=3)
     ax.grid(axis="y", alpha=0.3)
+    return salva(fig, out, nome)
+
+
+def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str) -> str:
+    dati = [(k, va, vb) for k, va, vb in sintesi.get("coppie", [])
+            if va is not None and vb is not None]
+    if not dati:
+        return ""
+    dati.sort(key=lambda x: x[2] - x[1])
+    etichette = [k for k, _, _ in dati]
+    delta = [vb - va for _, va, vb in dati]
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(13, max(4, len(dati) * 0.34)),
+        gridspec_kw={"width_ratios": [1.1, 1]})
+
+    ax1.barh(etichette, delta,
+             color=["#3f9b5c" if d > 0 else "#c0504d" for d in delta])
+    ax1.axvline(0, color="#333", lw=1)
+    media = sum(delta) / len(delta)
+    ax1.axvline(media, color="#777", ls="--", lw=1.2,
+                label=f"Δ medio {media:+.4f}")
+    ax1.set_xlabel(f"Δ  ({b} − {a})")
+    ax1.set_title(f"{titolo}\nverde = vince {b}   rosso = vince {a}", fontsize=10)
+    ax1.legend(fontsize=8); ax1.grid(axis="x", alpha=.3)
+
+    for i, (_, va, vb) in enumerate(dati):
+        ax2.plot([0, 1], [va, vb], "-o", ms=4, lw=1.4,
+                 color="#3f9b5c" if vb > va else "#c0504d", alpha=.8)
+    ax2.set_xlim(-0.2, 1.2); ax2.set_xticks([0, 1]); ax2.set_xticklabels([a, b])
+    ax2.set_ylabel("metrica"); ax2.set_title("ogni linea è una coppia", fontsize=10)
+    ax2.grid(axis="y", alpha=.3)
     return salva(fig, out, nome)
 
 
@@ -451,6 +485,9 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
         "",
     ]
 
+    if G:
+        md += [g_delta(s, "lora", "qlora", "LoRA contro QLoRA",
+                       out, "rq3_lora_qlora.png")]
     md += ["## 4. Quanto impatta la dimensione del modello", ""]
     md += [
         tabella(
@@ -546,6 +583,10 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
         metrica,
         sezione="findings",
     )
+    if G:
+        md += [g_delta(s5, "1 immagine", "2 immagini",
+                       "Effetto della proiezione laterale",
+                       out, "rq5_laterale.png")]
     md += [
         "## 6. Quanto impatta l'aggiunta dell'impression",
         "",
@@ -578,6 +619,10 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
         "",
     ]
 
+    if G:
+        md += [g_delta(s6, "solo reperti", "reperti+impressione",
+                       "Effetto dell'impressione sui soli reperti",
+                       out, "rq6_impressione.png")]
     md += [
         "## 7. Andamento delle loss",
         "",
