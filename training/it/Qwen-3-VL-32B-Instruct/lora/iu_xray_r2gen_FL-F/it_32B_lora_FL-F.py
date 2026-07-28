@@ -7,7 +7,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from shield.training import main
 
-OVERRIDES: dict = {}
+OVERRIDES: dict = {"learning_rate": 1e-6}
 
 if __name__ == "__main__":
     raise SystemExit(main(__file__, OVERRIDES))
