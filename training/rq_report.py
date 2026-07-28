@@ -181,25 +181,26 @@ def g_early(righe: list[dict], out: Path) -> str:
     dati = [r for r in righe if r["best_epoca"] is not None and r["epoche"]]
     if not dati:
         return ""
-    fig, ax = plt.subplots(figsize=(7, 5))
-    for m in MODELLI:
-        sel = [r for r in dati if r["modello"] == m]
-        if sel:
-            ax.scatter(
-                [r["epoche"] for r in sel],
-                [r["best_epoca"] for r in sel],
-                label=m,
-                color=COLORI.get(m),
-                s=60,
-                alpha=0.8,
-            )
-    lim = max(max(r["epoche"] for r in dati), max(r["best_epoca"] for r in dati)) + 0.5
-    ax.plot([0, lim], [0, lim], "--", color="#bbb", lw=1)
-    ax.set_xlabel("epoche eseguite")
-    ax.set_ylabel("epoca del best checkpoint")
-    ax.set_title("Sulla diagonale = stava ancora migliorando quando si è fermato")
-    ax.legend()
-    ax.grid(alpha=0.3)
+    dati.sort(key=lambda r: (r["epoche"], r["best_epoca"]))
+    fig, ax = plt.subplots(figsize=(10, max(4, len(dati) * 0.32)))
+    y = range(len(dati))
+    ax.barh(list(y), [r["epoche"] for r in dati], color="#dfe4ea",
+            edgecolor="#c3c9d1", label="epoche eseguite")
+    ax.barh(list(y), [r["best_epoca"] for r in dati],
+            color=[COLORI.get(r["modello"], "#888") for r in dati],
+            label="fino al best checkpoint")
+    for i, r in enumerate(dati):
+        ax.plot(r["best_epoca"], i, "|", color="#111", ms=13, mew=2)
+        ax.text(r["epoche"] + 0.12, i, f"best all'epoca {r['best_epoca']:.0f}",
+                va="center", fontsize=7.5, color="#555")
+    ax.set_yticks(list(y)); ax.set_yticklabels([r["esperimento"] for r in dati], fontsize=8)
+    ax.set_xlabel("epoche")
+    fermati = sum(1 for r in dati if r["early_stopped"])
+    ax.set_title(f"Quanto ha girato ogni esperimento e dove stava il best\n"
+                 f"{fermati}/{len(dati)} fermati dall'early stopping · "
+                 f"la parte grigia è addestramento dopo il best", fontsize=10)
+    ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
+    ax.set_xlim(0, max(r["epoche"] for r in dati) * 1.32)
     return salva(fig, out, "rq2_early_stopping.png")
 
 
@@ -242,29 +243,31 @@ def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str) ->
             if va is not None and vb is not None]
     if not dati:
         return ""
-    dati.sort(key=lambda x: x[2] - x[1])
-    etichette = [k for k, _, _ in dati]
-    delta = [vb - va for _, va, vb in dati]
-    fig, (ax1, ax2) = plt.subplots(
-        1, 2, figsize=(13, max(4, len(dati) * 0.34)),
-        gridspec_kw={"width_ratios": [1.1, 1]})
-
-    ax1.barh(etichette, delta,
-             color=["#3f9b5c" if d > 0 else "#c0504d" for d in delta])
-    ax1.axvline(0, color="#333", lw=1)
-    media = sum(delta) / len(delta)
-    ax1.axvline(media, color="#777", ls="--", lw=1.2,
-                label=f"Δ medio {media:+.4f}")
-    ax1.set_xlabel(f"Δ  ({b} − {a})")
-    ax1.set_title(f"{titolo}\nverde = vince {b}   rosso = vince {a}", fontsize=10)
-    ax1.legend(fontsize=8); ax1.grid(axis="x", alpha=.3)
-
-    for i, (_, va, vb) in enumerate(dati):
-        ax2.plot([0, 1], [va, vb], "-o", ms=4, lw=1.4,
-                 color="#3f9b5c" if vb > va else "#c0504d", alpha=.8)
-    ax2.set_xlim(-0.2, 1.2); ax2.set_xticks([0, 1]); ax2.set_xticklabels([a, b])
-    ax2.set_ylabel("metrica"); ax2.set_title("ogni linea è una coppia", fontsize=10)
-    ax2.grid(axis="y", alpha=.3)
+    dati.sort(key=lambda x: x[1])
+    fig, ax = plt.subplots(figsize=(10, max(4, len(dati) * 0.36)))
+    for i, (k, va, vb) in enumerate(dati):
+        colore = "#3f9b5c" if vb > va else "#c0504d"
+        ax.plot([va, vb], [i, i], "-", color=colore, lw=2.2, zorder=1)
+        ax.plot(va, i, "o", ms=8, color="#5b6b7f", zorder=2)
+        ax.plot(vb, i, "o", ms=8, color=colore, zorder=2)
+        ax.text(max(va, vb) + (max(v for _, x, y in dati for v in (x, y)) * 0.012),
+                i, f"{vb - va:+.4f}", va="center", fontsize=8, color=colore)
+    ax.set_yticks(range(len(dati)))
+    ax.set_yticklabels([k for k, _, _ in dati], fontsize=8.5)
+    media = sum(vb - va for _, va, vb in dati) / len(dati)
+    vinte = sum(1 for _, va, vb in dati if vb > va)
+    ax.plot([], [], "o", color="#5b6b7f", label=a)
+    ax.plot([], [], "o", color="#3f9b5c", label=f"{b} (meglio)")
+    ax.plot([], [], "o", color="#c0504d", label=f"{b} (peggio)")
+    ax.set_xlabel("metrica sul best checkpoint")
+    ax.set_title(f"{titolo}\n{b} vince in {vinte}/{len(dati)} coppie · "
+                 f"Δ medio {media:+.4f} · ogni riga confronta due esperimenti "
+                 f"identici tranne che per questa scelta", fontsize=10)
+    ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
+    lo = min(v for _, x, y in dati for v in (x, y))
+    hi = max(v for _, x, y in dati for v in (x, y))
+    margine = (hi - lo) * 0.22 or 0.01
+    ax.set_xlim(lo - margine, hi + margine * 1.8)
     return salva(fig, out, nome)
 
 
