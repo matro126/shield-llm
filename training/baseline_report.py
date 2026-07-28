@@ -42,6 +42,7 @@ def load() -> list[dict]:
                 "mlflow": bool(m.get("mlflow_run_id")),
                 "modello_caricato": ident.get("model", "?"),
                 "cartella": str(path.parents[2].relative_to(ROOT)),
+                "cartella_modello": path.parents[3].name,
             }
         )
     return rows
@@ -59,7 +60,7 @@ def problemi(rows: list[dict]) -> list[str]:
             out.append(f"{nome}: solo {r['sep_ratio']:.0%} delle generazioni ha <SEP>")
         if not r["mlflow"]:
             out.append(f"{nome}: non tracciata su MLflow")
-        atteso = r["cartella"].split("/")[1].replace("-", "").lower()
+        atteso = r["cartella_modello"].replace("-", "").lower()
         if atteso not in r["modello_caricato"].replace("-", "").lower():
             out.append(f"{nome}: cartella {atteso} ma modello {r['modello_caricato']}")
     return out
