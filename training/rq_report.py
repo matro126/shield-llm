@@ -271,6 +271,39 @@ def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str) ->
     return salva(fig, out, nome)
 
 
+def g_sezioni(ok: list[dict], metrica: str, out: Path) -> str:
+    fi = [r for r in ok if r["target"] == "R+I" and valore(r, metrica, "findings") is not None]
+    if not fi:
+        return ""
+    solo_f = {(r["modello"], r["modalita"], r["viste"]): valore(r, metrica)
+              for r in ok if r["target"] == "R"}
+    fi.sort(key=lambda r: valore(r, metrica, "findings"))
+    y = range(len(fi))
+    fig, ax = plt.subplots(figsize=(10, max(4, len(fi) * 0.4)))
+    ax.barh([i - 0.22 for i in y], [valore(r, metrica, "findings") for r in fi],
+            0.4, color="#4c8bf5", label="findings")
+    ax.barh([i + 0.22 for i in y], [valore(r, metrica, "impression") or 0 for r in fi],
+            0.4, color="#f5a04c", label="impression")
+    for i, r in enumerate(fi):
+        media = valore(r, metrica)
+        if media is not None:
+            ax.plot(media, i, "D", color="#111", ms=6, zorder=3)
+        rif = solo_f.get((r["modello"], r["modalita"], r["viste"]))
+        if rif is not None:
+            ax.plot(rif, i - 0.22, "|", color="#c0504d", ms=16, mew=2.5, zorder=3)
+    ax.plot([], [], "D", color="#111", label="media (la metrica riportata)")
+    ax.plot([], [], "|", color="#c0504d", ms=12, mew=2.5,
+            label="findings dell'esperimento senza impression")
+    ax.set_yticks(list(y))
+    ax.set_yticklabels([r["esperimento"] for r in fi], fontsize=8.5)
+    ax.set_xlabel(metrica)
+    ax.set_title("La media riportata sta fra le due sezioni\n"
+                 "se l'impression e' molto piu' alta, la media non misura i reperti",
+                 fontsize=10)
+    ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
+    return salva(fig, out, "rq9_sezioni.png")
+
+
 def g_curve(righe: list[dict], out: Path) -> str:
     dati = [r for r in righe if r["curve"].get("validation")]
     if not dati:
@@ -707,6 +740,41 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     ]
     if G:
         md += [g_classifica(ok, metrica, base, out)]
+
+
+    fi = [r for r in ok if r["target"] == "R+I"]
+    solo_f = {(r["modello"], r["modalita"], r["viste"]): valore(r, metrica)
+              for r in ok if r["target"] == "R"}
+    dati9, scarti, contro = [], [], []
+    for r in sorted(fi, key=lambda r: r["esperimento"]):
+        vf = valore(r, metrica, "findings")
+        vi = valore(r, metrica, "impression")
+        vm = valore(r, metrica)
+        rif = solo_f.get((r["modello"], r["modalita"], r["viste"]))
+        if vf is not None and vi is not None:
+            scarti.append(vi - vf)
+        if vf is not None and rif is not None:
+            contro.append(vf - rif)
+        dati9.append([r["esperimento"], num(vf), num(vi), num(vm), num(rif),
+                      segno(vf - rif) if (vf is not None and rif is not None) else "—"])
+    md += ["## 9. La media e' gonfiata dall'impression?", "",
+           "Per i dataset con entrambe le sezioni la metrica riportata e' la **media** di "
+           "findings e impression. L'impression e' corta e formulaica — in due referti su "
+           "tre e' una negazione gia' presente nel training — quindi e' facile da "
+           "azzeccare e tira su la media. Questa tabella la scompone, e confronta i "
+           "findings con quelli dell'esperimento gemello addestrato **senza** impression.",
+           ""]
+    if scarti:
+        md += [f"L'impression supera i findings di **{segno(statistics.fmean(scarti))}** in "
+               f"media ({sum(1 for s in scarti if s > 0)}/{len(scarti)} esperimenti).", ""]
+    if contro:
+        md += [f"I findings degli esperimenti con impression differiscono da quelli senza "
+               f"di **{segno(statistics.fmean(contro))}** in media: e' l'unico confronto "
+               f"che dice se chiedere anche l'impression aiuta o danneggia i reperti.", ""]
+    md += [tabella(["esperimento", "findings", "impression", "media riportata",
+                    "findings del gemello senza impression", "Δ"], dati9), ""]
+    if G:
+        md += [g_sezioni(ok, metrica, out)]
 
     if not G:
         md += [
