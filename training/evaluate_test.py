@@ -54,6 +54,13 @@ def main(argv: list[str] | None = None) -> int:
              "Restringerle conviene: la suite semantica gira una volta per "
              "sottogruppo, quindi decine di volte.",
     )
+    parser.add_argument("--no-profile", action="store_true",
+                        help="salta le metriche infrastrutturali di §3.8.3")
+    parser.add_argument("--profile-samples", type=int, default=60,
+                        help="referti per la latenza a richiesta singola (batch 1)")
+    parser.add_argument("--profile-batches", type=int, nargs="+",
+                        default=[1, 2, 4, 8, 16],
+                        help="ampiezze di batch per la curva carico/latenza")
     parser.add_argument("--no-mlflow", action="store_true",
                         help="non tracciare questa valutazione su MLflow")
     parser.add_argument("--list", action="store_true",
@@ -105,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         compute_text_metrics,
         disaggregate,
         operational_metrics,
+        profila,
+        riassunto,
         sectioned_metrics,
     )
     from shield.training.evaluation import flatten_sectioned, generate_predictions
@@ -129,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     model, processor = load_model_and_processor(cfg, ROOT)
     model.load_adapter(str(adapter), adapter_name="best")
     model.set_adapter("best")
+
+    import torch as _torch
+    vram_modello = (_torch.cuda.memory_allocated() / 1e9
+                    if _torch.cuda.is_available() else None)
 
     dash = LiveDashboard(title=f"{cfg.experiment} — {args.split}")
     dash.start()
@@ -174,6 +187,30 @@ def main(argv: list[str] | None = None) -> int:
         predictions, references, metrics, cfg.target,
         metric_fn=compute_text_metrics,
     )
+    profilo = None
+    if not args.no_profile:
+        print("\nmetriche infrastrutturali (§3.8.3): latenza a batch 1 e curva di carico…")
+
+        t_prof = time.time()
+
+        def on_profile(fase: str, fatti: int, totale: int) -> None:
+            barra = "#" * int(28 * fatti / max(totale, 1))
+            print(f"\r  {fase:<30} [{barra:<28}] {fatti}/{totale}  "
+                  f"{time.time() - t_prof:.0f}s", end="", flush=True)
+            if fatti >= totale:
+                print()
+
+        profilo = profila(
+            model, processor, records,
+            max_new_tokens=cfg.max_new_tokens,
+            repetition_penalty=cfg.repetition_penalty,
+            n_singole=args.profile_samples,
+            batch_sizes=tuple(args.profile_batches),
+            vram_modello_gb=vram_modello,
+            progress=on_profile,
+        )
+        print(riassunto(profilo))
+
     payload = {
         "experiment": cfg.experiment,
         "split": args.split,
@@ -184,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         "by_section": sectioned,
         "operational": {k: round(float(v), 4) for k, v in operational.items()},
         "generation_s": round(generation_s, 1),
+        "infrastructure": profilo,
     }
 
     print(f"\n=== METRICHE {args.split.upper()} — media delle sezioni ===")
@@ -291,6 +329,16 @@ def main(argv: list[str] | None = None) -> int:
                 payload["mlflow_run_id"] = run.info.run_id if run else None
                 log_numeric_metrics(sectioned["mean"], prefix=args.split)
                 log_numeric_metrics(operational, prefix="operational")
+                if profilo and not profilo.get("errore"):
+                    log_numeric_metrics(profilo["richiesta_singola"],
+                                        prefix="infra.single")
+                    log_numeric_metrics(profilo["vram"], prefix="infra.vram")
+                    for riga in profilo["carico"]:
+                        if "errore" in riga:
+                            continue
+                        log_numeric_metrics(
+                            {k: v for k, v in riga.items() if k != "batch_size"},
+                            prefix=f"infra.batch{riga['batch_size']}")
                 for section in ("findings", "impression"):
                     if isinstance(sectioned.get(section), dict):
                         log_numeric_metrics(

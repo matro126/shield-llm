@@ -11,6 +11,7 @@ from .metrics import (
     rouge_scores,
 )
 from .operational import operational_metrics, percentile, summarize_latency
+from .profiling import curva_carico, latenza_singola, profila, riassunto
 from .sections import sectioned_metrics
 from .significance import (
     paired_bootstrap_corpus,
@@ -33,7 +34,11 @@ __all__ = [
     "operational_metrics",
     "paired_bootstrap_corpus",
     "paired_bootstrap_mean",
+    "curva_carico",
+    "latenza_singola",
     "percentile",
+    "profila",
+    "riassunto",
     "rouge_scores",
     "sectioned_metrics",
     "significance_vs_baseline",
