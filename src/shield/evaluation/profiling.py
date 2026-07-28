@@ -80,7 +80,6 @@ def latenza_singola(
     repetition_penalty: float,
     progress=None,
 ) -> dict[str, Any]:
-    """Un referto alla volta, cronometrato singolarmente. Batch 1."""
     tempi: list[float] = []
     token: list[int] = []
     _reset_vram()
@@ -268,7 +267,6 @@ def profila(
 
 
 def riassunto(profilo: dict[str, Any]) -> str:
-    """Poche righe da stampare a fine valutazione."""
     if not profilo or profilo.get("errore"):
         return f"  profilazione non riuscita: {profilo.get('errore', '?')}"
     s = profilo["richiesta_singola"]

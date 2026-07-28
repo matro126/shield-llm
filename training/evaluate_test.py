@@ -120,6 +120,15 @@ def main(argv: list[str] | None = None) -> int:
     from shield.training.model import load_model_and_processor
 
     out_dir = results / args.split if args.split != "test" else results / "test"
+
+    from shield.training.runner import archive_previous  # noqa: PLC0415
+
+    archiviata = archive_previous(
+        results, (out_dir.name,), f"eval-{args.split}", marker=f"{out_dir.name}/metrics.json"
+    )
+    if archiviata is not None:
+        print(f"  archivio  : valutazione precedente → "
+              f"{archiviata.relative_to(ROOT)}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"═══ valutazione {args.split}: {cfg.experiment}")

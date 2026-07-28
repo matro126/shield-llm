@@ -9,7 +9,7 @@ from typing import Any
 from .config import Config, Identity, build_config
 from .dashboard import LiveDashboard, hms
 from .results import now_iso, write_json_atomic
-from .runner import find_project_root
+from .runner import BASELINE_ARTIFACTS, archive_previous, find_project_root
 
 
 def run_baseline(
@@ -44,6 +44,12 @@ def run_baseline(
         )
     out_dir = project_root / cfg.results_dir
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    archiviata = archive_previous(
+        out_dir, BASELINE_ARTIFACTS, "baseline", marker="metrics.json"
+    )
+    if archiviata is not None:
+        print(f"  archivio  : baseline precedente → {archiviata}")
 
     print(f"═══ baseline zero-shot: {cfg.experiment}")
     print(f"  modello   : {cfg.base_model}  (bf16, nessun adapter)"

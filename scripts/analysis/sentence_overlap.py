@@ -1,37 +1,4 @@
 #!/usr/bin/env python3
-"""Dizionari di frasi: quanto i modelli riusano il lessico del training.
-
-Costruisce, per il training e per le predizioni, un dizionario `testo → quante
-volte compare`, a due granularita':
-
-    sezioni   il testo INTERO di reperti o impressione   → quanti referti sono uguali
-    frasi     le singole frasi che lo compongono          → quali formule si ripetono
-
-Due modi d'uso.
-
-  UNO — il dettaglio di un esperimento: i quattro dizionari, la distribuzione
-  delle frequenze e le frasi piu' amplificate.
-
-      python scripts/analysis/sentence_overlap.py \\
-          --train dataset/iu-xray/ita/iu_xray_it_FL-FI/train.jsonl \\
-          --pred  training/it/.../results/val_predictions_best.json
-
-  DUE — il confronto fra TUTTI gli esperimenti conclusi, che e' il modo per cui
-  esiste: una riga per esperimento, raggruppate per dataset, sul miglior
-  checkpoint di ciascuno.
-
-      python scripts/analysis/sentence_overlap.py --all
-
-I dataset con i soli reperti non hanno impressione: per loro le colonne della
-sezione mancante restano `n/d`, non zero, e non entrano in nessuna media. Se un
-modello addestrato sui soli reperti producesse comunque un'impressione, viene
-segnalato: e' formato non richiesto.
-
-Ogni misura e' accompagnata da quella sui RIFERIMENTI dello stesso file — testi
-umani mai visti dal modello. Senza quel metro «l'80% delle frasi viene dal
-training» non si sa se accusa il modello o il dataset.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -71,9 +38,6 @@ def frasi(testo: str | None) -> list[str]:
     return out
 
 
-# ─────────────────────────── dizionari ───────────────────────────
-
-
 def vuoto() -> dict:
     return {s: {"sezioni": Counter(), "frasi": Counter()} for s in SEZIONI}
 
@@ -90,7 +54,6 @@ _cache_train: dict[Path, tuple[dict, int]] = {}
 
 
 def dal_training(paths: list[Path]) -> tuple[dict, int]:
-    """I dizionari del training. In cache: i 24 esperimenti condividono 4 dataset."""
     chiave = tuple(sorted(paths))
     if chiave in _cache_train:
         return _cache_train[chiave]
@@ -126,9 +89,6 @@ def leggi_sample(path: Path) -> list[dict]:
     return samples
 
 
-# ─────────────────────────── misure ───────────────────────────
-
-
 def profilo(contatore: Counter) -> dict:
     occorrenze, distinte = sum(contatore.values()), len(contatore)
     if not occorrenze:
@@ -157,7 +117,6 @@ def confronto(train: Counter, pred: Counter) -> dict:
         righe.append({"frase": frase, "train": train.get(frase, 0), "pred": quante,
                       "quota_train": quota_t, "quota_pred": quota_p,
                       "amplificazione": (quota_p / quota_t) if quota_t else None})
-    # quanto il modello gonfia le formule che il training ha piu' spesso
     ampl = [r["amplificazione"] for r in righe
             if r["amplificazione"] is not None
             and r["frase"] in dict(train.most_common(10))]
@@ -174,7 +133,6 @@ def confronto(train: Counter, pred: Counter) -> dict:
 
 
 def sintesi(diz_train: dict, diz_pred: dict, diz_rif: dict, sezione: str) -> dict | None:
-    """I numeri di una sezione per un esperimento. None se la sezione non esiste."""
     pp = profilo(diz_pred[sezione]["frasi"])
     if not pp["occorrenze"]:
         return None
@@ -197,9 +155,6 @@ def sintesi(diz_train: dict, diz_pred: dict, diz_rif: dict, sezione: str) -> dic
         "ampl_top10": cm["ampl_top10"],
         "sezioni_uguali": profilo(diz_pred[sezione]["sezioni"])["ripetizione"],
     }
-
-
-# ─────────────────────────── modalita' dettaglio ───────────────────────────
 
 
 def dettaglio(diz_train, n_train, diz_pred, diz_rif, samples, top: int) -> None:
@@ -243,13 +198,8 @@ def dettaglio(diz_train, n_train, diz_pred, diz_rif, samples, top: int) -> None:
                   f"({c['quota_nuove']:.1%})")
 
 
-# ─────────────────────────── modalita' confronto ───────────────────────────
-
-
 def esperimenti(training_root: Path) -> list[tuple[str, Path, Path, str, str]]:
-    """(nome, file predizioni, train.jsonl, codice dataset, target) per i conclusi."""
     out = []
-    # training/<lang>/<modello>/<modalita>/<dataset>/results/
     for pred in sorted(training_root.glob("*/*/*/*/results/val_predictions_best.json")):
         rel = pred.parents[1].relative_to(ROOT)
         try:
@@ -287,7 +237,7 @@ def confronta_tutti(training_root: Path, out_csv: Path | None) -> int:
 
         for sezione in SEZIONI:
             if target == "findings" and sezione == "impression":
-                continue                    # sezione inesistente: non e' uno zero
+                continue
             s = sintesi(diz_train, diz_pred, diz_rif, sezione)
             if s is None:
                 anomalie.append(f"{nome}: nessuna {sezione} generata")

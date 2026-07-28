@@ -87,10 +87,23 @@ RUN_ARTIFACTS = (
 )
 
 
+BASELINE_ARTIFACTS = (
+    "metrics.json",
+    "predictions.csv",
+    "disaggregated.json",
+    "posthoc_metrics.json",
+)
+TEST_ARTIFACTS = ("test",)
+
+
 def archive_results(
-    results: Path, status: str, include_adapter: bool = True
+    results: Path,
+    status: str,
+    include_adapter: bool = True,
+    artifacts: tuple[str, ...] = RUN_ARTIFACTS,
+    marker: str = "results.json",
 ) -> Path | None:
-    if not (results / "results.json").is_file():
+    if not (results / marker).is_file():
         return None
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = results / "archive" / f"{stamp}-{status}"
@@ -99,7 +112,7 @@ def archive_results(
         destination = results / "archive" / f"{stamp}-{status}-{suffix}"
         suffix += 1
     destination.mkdir(parents=True)
-    for name in RUN_ARTIFACTS:
+    for name in artifacts:
         if name == "best_adapter" and not include_adapter:
             continue
         source = results / name
@@ -110,13 +123,26 @@ def archive_results(
     return destination
 
 
-def clear_live_results(results: Path) -> None:
-    for name in RUN_ARTIFACTS:
+def clear_live_results(
+    results: Path, artifacts: tuple[str, ...] = RUN_ARTIFACTS
+) -> None:
+    for name in artifacts:
         path = results / name
         if path.is_dir():
             shutil.rmtree(path)
         elif path.is_file():
             path.unlink()
+
+
+def archive_previous(
+    results: Path, artifacts: tuple[str, ...], status: str, marker: str
+) -> Path | None:
+    archived = archive_results(
+        results, status, artifacts=artifacts, marker=marker
+    )
+    if archived is not None:
+        clear_live_results(results, artifacts)
+    return archived
 
 
 def _previous_status(results: Path) -> str | None:
