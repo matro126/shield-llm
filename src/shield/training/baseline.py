@@ -34,6 +34,7 @@ def run_baseline(
         MIN_SUBGROUP_SIZE,
         flatten_sectioned,
         generate_predictions,
+        mesh_metrics,
     )
     from .model import load_model_and_processor
     from .runner import _require_gpu, _seed_everything, _vram_peak
@@ -127,6 +128,10 @@ def run_baseline(
         metric_fn=compute_text_metrics, **metric_kwargs,
     )
     raw = compute_text_metrics(predictions, references, metrics_names, **metric_kwargs)
+    mesh = mesh_metrics(records, predictions, metrics_names, **metric_kwargs)
+    if mesh:
+        sectioned["mesh"] = {k.removeprefix("mesh_"): v for k, v in mesh.items()}
+        sectioned["mean"].update(mesh)
 
     by_factor = disaggregate(
         records, predictions, references,

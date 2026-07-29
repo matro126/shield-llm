@@ -295,6 +295,7 @@ def chexbert_f1(
     predictions: list[str],
     references: list[str],
     device: str | None = None,
+    per_class: bool = False,
 ) -> dict[str, float]:
     labeler = _chexbert_labeler(device)
 
@@ -319,13 +320,112 @@ def chexbert_f1(
     class_report_5 = classification_report(
         refs_5, hyps_5, output_dict=True, zero_division=0
     )
-    return {
+    out = {
         "chexbert_accuracy": float(accuracy),
         "chexbert_f1_micro": _report_f1(class_report, "micro avg"),
         "chexbert_f1_macro": _report_f1(class_report, "macro avg"),
         "chexbert_f1_micro_top5": _report_f1(class_report_5, "micro avg"),
         "chexbert_f1_macro_top5": _report_f1(class_report_5, "macro avg"),
     }
+    out.update(_operating_point(refs_arr, hyps_arr, _class_names(labeler), per_class))
+    return out
+
+
+NO_FINDING = "No Finding"
+
+
+def _class_names(labeler) -> list[str]:
+    return [str(n) for n in getattr(labeler, "target_names", [])]
+
+
+def _operating_point(
+    gold, hyp, names: list[str], per_class: bool = False
+) -> dict[str, float]:
+    import numpy as np
+
+    out: dict[str, float] = {}
+    anomalie = [i for i, n in enumerate(names) if n != NO_FINDING] or list(
+        range(gold.shape[1])
+    )
+    g_any = gold[:, anomalie].max(axis=1)
+    h_any = hyp[:, anomalie].max(axis=1)
+    tp = int(((g_any == 1) & (h_any == 1)).sum())
+    fp = int(((g_any == 0) & (h_any == 1)).sum())
+    fn = int(((g_any == 1) & (h_any == 0)).sum())
+    tn = int(((g_any == 0) & (h_any == 0)).sum())
+    sens = tp / (tp + fn) if tp + fn else 0.0
+    spec = tn / (tn + fp) if tn + fp else 0.0
+    out.update({
+        "chexbert_any_sensitivity": sens,
+        "chexbert_any_specificity": spec,
+        "chexbert_any_balanced": (sens + spec) / 2,
+        "chexbert_any_positivi_gold": float(tp + fn),
+        "chexbert_any_positivi_predetti": float(tp + fp),
+        "chexbert_any_veri_positivi": float(tp),
+    })
+
+    sensi, speci = [], []
+    for j in range(gold.shape[1]):
+        nome = names[j] if j < len(names) else str(j)
+        if nome == NO_FINDING:
+            continue
+        tp = int(((gold[:, j] == 1) & (hyp[:, j] == 1)).sum())
+        fp = int(((gold[:, j] == 0) & (hyp[:, j] == 1)).sum())
+        fn = int(((gold[:, j] == 1) & (hyp[:, j] == 0)).sum())
+        tn = int(((gold[:, j] == 0) & (hyp[:, j] == 0)).sum())
+        s = tp / (tp + fn) if tp + fn else 0.0
+        p = tp / (tp + fp) if tp + fp else 0.0
+        sp = tn / (tn + fp) if tn + fp else 0.0
+        if tp + fn:
+            sensi.append(s)
+            speci.append(sp)
+        if per_class:
+            chiave = nome.replace(" ", "_").replace("/", "_")
+            out[f"chexbert_cls_{chiave}_supporto"] = float(tp + fn)
+            out[f"chexbert_cls_{chiave}_veri_positivi"] = float(tp)
+            out[f"chexbert_cls_{chiave}_falsi_positivi"] = float(fp)
+            out[f"chexbert_cls_{chiave}_sensibilita"] = s
+            out[f"chexbert_cls_{chiave}_precisione"] = p
+            out[f"chexbert_cls_{chiave}_specificita"] = sp
+    out["chexbert_sens_macro"] = float(np.mean(sensi)) if sensi else 0.0
+    out["chexbert_spec_macro"] = float(np.mean(speci)) if speci else 0.0
+    out["chexbert_classi_con_supporto"] = float(len(sensi))
+    return out
+
+
+def chexbert_vs_categories(
+    predictions: list[str],
+    categories: list[list[str]],
+    device: str | None = None,
+    per_class: bool = True,
+) -> dict[str, float]:
+    import numpy as np
+
+    labeler = _chexbert_labeler(device)
+    names = _class_names(labeler)
+    indice = {n.lower(): i for i, n in enumerate(names)}
+
+    gold = np.zeros((len(categories), len(names)), dtype=int)
+    ignorate: set[str] = set()
+    for riga, elenco in enumerate(categories):
+        for categoria in elenco or []:
+            posto = indice.get(str(categoria).strip().lower())
+            if posto is None:
+                ignorate.add(str(categoria))
+            else:
+                gold[riga, posto] = 1
+
+    def _label(text: str) -> list[int]:
+        key = text.strip() or "."
+        if key not in _LABELS:
+            _LABELS[key] = labeler.get_label(key)
+        return _LABELS[key]
+
+    hyp = np.array([_label(t) for t in predictions])
+    out = {f"mesh_{k.removeprefix('chexbert_')}": v
+           for k, v in _operating_point(gold, hyp, names, per_class).items()}
+    out["mesh_categorie_ignorate"] = float(len(ignorate))
+    return out
 
 
 def compute_text_metrics(
@@ -339,6 +439,7 @@ def compute_text_metrics(
     chexbert_device: str | None = None,
     chexbert_translate: bool = False,
     chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en",
+    chexbert_per_class: bool = False,
     lexical_normalizer: Callable[[str], str] | None = None,
     lexical_references: list[str] | None = None,
 ) -> dict[str, float]:
@@ -375,7 +476,9 @@ def compute_text_metrics(
             chex_ref = translate(references, chexbert_translator, chexbert_device)
         else:
             chex_pred, chex_ref = predictions, references
-        out.update(chexbert_f1(chex_pred, chex_ref, chexbert_device))
+        out.update(
+            chexbert_f1(chex_pred, chex_ref, chexbert_device, chexbert_per_class)
+        )
     return out
 
 

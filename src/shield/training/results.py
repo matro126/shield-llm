@@ -96,6 +96,7 @@ def validation_row(
                 ("findings", sectioned.get("findings")),
                 ("impression", sectioned.get("impression")),
                 ("report", sectioned.get("report")),
+                ("mesh", sectioned.get("mesh")),
             )
         },
         "eval_seconds": round(float(eval_seconds), 1),

@@ -25,7 +25,7 @@ def prompts_of(record: dict[str, Any]) -> tuple[str, str]:
 
 def flatten_sectioned(result: dict[str, Any]) -> dict[str, float]:
     flat: dict[str, float] = {k: float(v) for k, v in result["mean"].items()}
-    for section in ("findings", "impression", "report"):
+    for section in ("findings", "impression", "report", "mesh"):
         values = result.get(section)
         if isinstance(values, dict):
             for key, value in values.items():
@@ -162,7 +162,42 @@ def evaluate_generative(
         predictions, references, list(metric_names), target,
         metric_fn=compute_text_metrics, **metric_kwargs
     )
+    mesh = mesh_metrics(records, predictions, list(metric_names), **metric_kwargs)
+    if mesh:
+        sectioned["mesh"] = {k.removeprefix("mesh_"): v for k, v in mesh.items()}
+        sectioned["mean"].update(mesh)
     return sectioned, predictions, references
+
+
+def categorie_mesh(records: Sequence[dict[str, Any]]) -> list[list[str]]:
+    fuori = []
+    for record in records:
+        fattori = record.get("factors") or {}
+        categorie = fattori.get("diagnostic_category") or []
+        fuori.append([str(c) for c in categorie])
+    return fuori
+
+
+def mesh_metrics(
+    records: Sequence[dict[str, Any]],
+    predictions: list[str],
+    metric_names: list[str],
+    chexbert_translate: bool = False,
+    chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en",
+    **_ignorati: Any,
+) -> dict[str, float]:
+    if "chexbert" not in metric_names:
+        return {}
+    categorie = categorie_mesh(records)
+    if not any(categorie):
+        return {}
+
+    from ..evaluation.metrics import chexbert_vs_categories, translate
+
+    testi = predictions
+    if chexbert_translate:
+        testi = translate(predictions, chexbert_translator)
+    return chexbert_vs_categories(testi, categorie)
 
 
 class Stopwatch:

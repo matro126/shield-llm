@@ -383,6 +383,7 @@ def run_experiment(
             dataloader_num_workers=cfg.dataloader_num_workers,
             dataloader_persistent_workers=cfg.dataloader_persistent_workers,
             seed=cfg.seed,
+            full_determinism=cfg.full_determinism,
         )
         trainer = Trainer(
             model=model,

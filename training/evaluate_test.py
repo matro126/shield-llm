@@ -116,7 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         riassunto,
         sectioned_metrics,
     )
-    from shield.training.evaluation import flatten_sectioned, generate_predictions
+    from shield.training.evaluation import (
+        flatten_sectioned,
+        generate_predictions,
+        mesh_metrics,
+    )
     from shield.training.model import load_model_and_processor
 
     out_dir = results / args.split if args.split != "test" else results / "test"
@@ -192,10 +196,18 @@ def main(argv: list[str] | None = None) -> int:
           f"VRAM picco {operational.get('vram_peak_gb', 0):.1f} GB")
 
     print("calcolo delle metriche (la suite completa richiede qualche minuto)…")
+    metric_kwargs = {
+        "chexbert_translate": cfg.chexbert_translate,
+        "chexbert_translator": cfg.chexbert_translator,
+    }
     sectioned = sectioned_metrics(
         predictions, references, metrics, cfg.target,
-        metric_fn=compute_text_metrics,
+        metric_fn=compute_text_metrics, **metric_kwargs,
     )
+    mesh = mesh_metrics(records, predictions, metrics, **metric_kwargs)
+    if mesh:
+        sectioned["mesh"] = {k.removeprefix("mesh_"): v for k, v in mesh.items()}
+        sectioned["mean"].update(mesh)
     profilo = None
     if not args.no_profile:
         print("\nmetriche infrastrutturali (§3.8.3): latenza a batch 1 e curva di carico…")
@@ -252,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             return flatten_sectioned(
                 sectioned_metrics(
                     preds, refs, list(disaggregate_metrics), cfg.target,
-                    metric_fn=compute_text_metrics,
+                    metric_fn=compute_text_metrics, **metric_kwargs,
                 )
             )
 

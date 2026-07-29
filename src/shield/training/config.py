@@ -141,6 +141,7 @@ class Config:
 
     dataloader_num_workers: int = 8
     dataloader_persistent_workers: bool = True
+    full_determinism: bool = False
     archive_results: bool = True
     archive_adapter: bool = True
 
@@ -161,9 +162,7 @@ class Config:
     hash_base_model_full: bool = False
     save_every_eval: bool = False
 
-    test_metrics: tuple[str, ...] = (
-        "bleu", "rougeL", "bertscore", "clinicalbert", "chexbert",
-    )
+    test_metrics: tuple[str, ...] = ("bleu", "rougeL")
     baseline_max_samples: int | None = None
 
     mlflow_enabled: bool = True
@@ -189,6 +188,10 @@ METRIC_KEYS: dict[str, tuple[str, ...]] = {
     "chexbert": (
         "chexbert_accuracy", "chexbert_f1_micro", "chexbert_f1_macro",
         "chexbert_f1_micro_top5", "chexbert_f1_macro_top5",
+        "chexbert_any_sensitivity", "chexbert_any_specificity",
+        "chexbert_any_balanced", "chexbert_sens_macro", "chexbert_spec_macro",
+        "mesh_any_sensitivity", "mesh_any_specificity", "mesh_any_balanced",
+        "mesh_sens_macro", "mesh_spec_macro",
     ),
 }
 
@@ -222,6 +225,20 @@ def validate(cfg: Config) -> None:
         )
     if cfg.monitor_mode not in ("max", "min"):
         raise ValueError(f"monitor_mode deve essere 'max' o 'min', non {cfg.monitor_mode!r}")
+
+    usa_chexbert = "chexbert" in set(cfg.eval_metrics) | set(cfg.test_metrics)
+    if usa_chexbert and cfg.lang != "en" and not cfg.chexbert_translate:
+        raise ValueError(
+            f"chexbert e' fra le metriche ma lang='{cfg.lang}' e chexbert_translate e' "
+            "False: il labeler verrebbe applicato a testo non inglese e produrrebbe "
+            "numeri privi di significato, senza sollevare errori. Attiva "
+            "chexbert_translate, oppure togli 'chexbert' da eval_metrics e test_metrics."
+        )
+    if usa_chexbert and cfg.lang == "en" and cfg.chexbert_translate:
+        raise ValueError(
+            "chexbert_translate e' attivo su lang='en': il testo verrebbe tradotto "
+            "dall'italiano quando e' gia' inglese."
+        )
     if cfg.per_device_train_batch_size < 1 or cfg.gradient_accumulation_steps < 1:
         raise ValueError("batch e gradient_accumulation_steps devono essere >= 1")
 

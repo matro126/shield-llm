@@ -19,7 +19,7 @@ def _mean(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
     return out
 
 
-WHOLE_REPORT_METRICS = ("chexbert",)
+WHOLE_REPORT_METRICS = {"chexbert": "chexbert_"}
 
 
 def _join(sections: Sequence[tuple[str, str | None]]) -> list[str]:
@@ -40,11 +40,14 @@ def sectioned_metrics(
 
     pred_f = [f for f, _ in pred_split]
     ref_f = [f for f, _ in ref_split]
-    findings = metric_fn(pred_f, ref_f, list(metric_names), **metric_kwargs)
 
     if target != "findings_impression":
+        findings = metric_fn(pred_f, ref_f, list(metric_names),
+                             chexbert_per_class=True, **metric_kwargs)
         return {"findings": findings, "impression": None, "report": None,
                 "mean": findings}
+
+    findings = metric_fn(pred_f, ref_f, list(metric_names), **metric_kwargs)
 
     pred_i = [i or "" for _, i in pred_split]
     ref_i = [i or "" for _, i in ref_split]
@@ -54,9 +57,11 @@ def sectioned_metrics(
     report = None
     whole = [m for m in metric_names if m in WHOLE_REPORT_METRICS]
     if whole:
-        report = metric_fn(_join(pred_split), _join(ref_split), whole, **metric_kwargs)
+        report = metric_fn(_join(pred_split), _join(ref_split), whole,
+                           chexbert_per_class=True, **metric_kwargs)
+        prefixes = tuple(WHOLE_REPORT_METRICS[m] for m in whole)
         for key, value in report.items():
-            if key != "num_examples":
+            if key.startswith(prefixes):
                 mean[key] = value
 
     return {
