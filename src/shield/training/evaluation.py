@@ -25,7 +25,7 @@ def prompts_of(record: dict[str, Any]) -> tuple[str, str]:
 
 def flatten_sectioned(result: dict[str, Any]) -> dict[str, float]:
     flat: dict[str, float] = {k: float(v) for k, v in result["mean"].items()}
-    for section in ("findings", "impression"):
+    for section in ("findings", "impression", "report"):
         values = result.get(section)
         if isinstance(values, dict):
             for key, value in values.items():
