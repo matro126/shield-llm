@@ -155,6 +155,9 @@ class Config:
     gen_batch_size: int = 16
     max_new_tokens: int = 1024
     repetition_penalty: float = 1.1
+    chexbert_translate: bool = False
+    chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en"
+    save_every_eval: bool = False
 
     test_metrics: tuple[str, ...] = (
         "bleu", "rougeL", "bertscore", "clinicalbert", "chexbert",

@@ -137,6 +137,7 @@ def evaluate_generative(
     max_new_tokens: int,
     repetition_penalty: float,
     progress: Callable[[int, int], None] | None = None,
+    **metric_kwargs: Any,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     predictions, references = generate_predictions(
         model,
@@ -158,7 +159,8 @@ def evaluate_generative(
                 "il target del dataset."
             )
     sectioned = sectioned_metrics(
-        predictions, references, list(metric_names), target, metric_fn=compute_text_metrics
+        predictions, references, list(metric_names), target,
+        metric_fn=compute_text_metrics, **metric_kwargs
     )
     return sectioned, predictions, references
 

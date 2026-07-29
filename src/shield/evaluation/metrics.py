@@ -28,6 +28,61 @@ def _clinical_scorer(model_type: str, num_layers: int):
     return scorer
 
 
+_TRANSLATIONS: dict[tuple[str, str], str] = {}
+_LABELS: dict[str, list[int]] = {}
+
+
+def _local_or_hub(model_type: str) -> str:
+    if Path(model_type).is_dir():
+        return str(Path(model_type).resolve())
+    local = Path(__file__).resolve().parents[3] / model_type
+    if local.is_dir():
+        return str(local)
+    return model_type
+
+
+@lru_cache(maxsize=2)
+def _translator(model_type: str, device: str | None):
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    resolved = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    source = _local_or_hub(model_type)
+    tokenizer = AutoTokenizer.from_pretrained(source)
+    model = AutoModelForSeq2SeqLM.from_pretrained(source).to(resolved).eval()
+    return tokenizer, model, resolved
+
+
+def translate(
+    texts: list[str],
+    model_type: str = "Helsinki-NLP/opus-mt-it-en",
+    device: str | None = None,
+    batch_size: int = 32,
+) -> list[str]:
+    import torch
+
+    tokenizer, model, resolved = _translator(model_type, device)
+    pending = sorted(
+        {
+            text.strip()
+            for text in texts
+            if text.strip() and (model_type, text.strip()) not in _TRANSLATIONS
+        }
+    )
+    for start in range(0, len(pending), batch_size):
+        chunk = pending[start : start + batch_size]
+        batch = tokenizer(
+            chunk, return_tensors="pt", padding=True, truncation=True, max_length=512
+        ).to(resolved)
+        with torch.inference_mode():
+            generated = model.generate(**batch, max_new_tokens=512, num_beams=4)
+        for source, rendered in zip(
+            chunk, tokenizer.batch_decode(generated, skip_special_tokens=True)
+        ):
+            _TRANSLATIONS[(model_type, source)] = rendered
+    return [_TRANSLATIONS.get((model_type, text.strip()), "") for text in texts]
+
+
 @lru_cache(maxsize=2)
 def _chexbert_labeler(device: str | None):
     from f1chexbert import F1CheXbert
@@ -46,9 +101,27 @@ def _chexbert_labeler(device: str | None):
     return labeler
 
 
+def preload_metric_models(
+    metrics: list[str],
+    chexbert_translate: bool = False,
+    chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en",
+    device: str | None = None,
+) -> list[str]:
+    caricati = []
+    if "chexbert" in metrics:
+        if chexbert_translate:
+            translate(["Il cuore e' di dimensioni normali."], chexbert_translator, device)
+            caricati.append(chexbert_translator)
+        _chexbert_labeler(device)
+        caricati.append("chexbert")
+    return caricati
+
+
 def clear_metric_models() -> None:
-    for cached in (_bert_scorer, _clinical_scorer, _chexbert_labeler):
+    for cached in (_bert_scorer, _clinical_scorer, _chexbert_labeler, _translator):
         cached.cache_clear()
+    _TRANSLATIONS.clear()
+    _LABELS.clear()
 
 
 def corpus_bleu(predictions: list[str], references: list[str]) -> dict[str, float]:
@@ -173,6 +246,7 @@ def _ensure_chexbert_checkpoint() -> None:
         return
     project_root = Path(__file__).resolve().parents[3]
     candidates = [
+        project_root / "models" / "others" / "chexbert" / "chexbert.pth",
         project_root / "models" / "evaluation" / "chexbert" / "chexbert.pth",
         *sorted(flat.parent.glob("models--*/snapshots/*/chexbert.pth")),
     ]
@@ -199,11 +273,14 @@ def chexbert_f1(
     import numpy as np
     from sklearn.metrics import accuracy_score, classification_report
 
-    def _labelable(text: str) -> str:
-        return text.strip() or "."
+    def _label(text: str) -> list[int]:
+        key = text.strip() or "."
+        if key not in _LABELS:
+            _LABELS[key] = labeler.get_label(key)
+        return _LABELS[key]
 
-    refs_arr = np.array([labeler.get_label(_labelable(t)) for t in references])
-    hyps_arr = np.array([labeler.get_label(_labelable(t)) for t in predictions])
+    refs_arr = np.array([_label(t) for t in references])
+    hyps_arr = np.array([_label(t) for t in predictions])
     top5 = labeler.target_names_5_index
     refs_5, hyps_5 = refs_arr[:, top5], hyps_arr[:, top5]
 
@@ -232,6 +309,8 @@ def compute_text_metrics(
     clinicalbert_model_type: str = "emilyalsentzer/Bio_ClinicalBERT",
     clinicalbert_num_layers: int | None = None,
     chexbert_device: str | None = None,
+    chexbert_translate: bool = False,
+    chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en",
     lexical_normalizer: Callable[[str], str] | None = None,
     lexical_references: list[str] | None = None,
 ) -> dict[str, float]:
@@ -263,7 +342,12 @@ def compute_text_metrics(
             )
         )
     if "chexbert" in metrics:
-        out.update(chexbert_f1(predictions, references, chexbert_device))
+        if chexbert_translate:
+            chex_pred = translate(predictions, chexbert_translator, chexbert_device)
+            chex_ref = translate(references, chexbert_translator, chexbert_device)
+        else:
+            chex_pred, chex_ref = predictions, references
+        out.update(chexbert_f1(chex_pred, chex_ref, chexbert_device))
     return out
 
 

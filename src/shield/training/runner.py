@@ -83,6 +83,7 @@ RUN_ARTIFACTS = (
     "val_predictions_best.csv",
     "val_predictions",
     "best_adapter",
+    "adapters",
     "test",
 )
 

@@ -10,6 +10,7 @@ from transformers import TrainerCallback
 
 from .evaluation import compute_val_loss, evaluate_generative
 from ..data.prompts import split_sections
+from ..evaluation import preload_metric_models
 from .results import (
     flatten_validation_row,
     validation_row,
@@ -70,6 +71,14 @@ class GenerativeEvalEarlyStop(TrainerCallback):
         self.since_improved = 0
         self.history: list[dict[str, Any]] = []
 
+        caricati = preload_metric_models(
+            list(cfg.eval_metrics),
+            getattr(cfg, "chexbert_translate", False),
+            getattr(cfg, "chexbert_translator", ""),
+        )
+        if caricati:
+            print(f"[eval] modelli di metrica caricati in memoria: {', '.join(caricati)}")
+
 
     def _improved(self, value: float) -> bool:
         if self.best is None:
@@ -110,6 +119,8 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             progress=lambda done, total: self.dash.log_progress(
                 "VALIDATION generazione", done, total, t_gen
             ),
+            chexbert_translate=self.cfg.chexbert_translate,
+            chexbert_translator=self.cfg.chexbert_translator,
         )
 
         row = validation_row(
@@ -135,6 +146,8 @@ class GenerativeEvalEarlyStop(TrainerCallback):
                 self.mlflow.log_metric(
                     f"val.{key}".replace(" ", "_"), float(value), step=state.global_step
                 )
+
+        self._save_ogni_eval(model, row)
 
         value = row["metrics"].get(self.cfg.monitor_metric)
         if value is not None and self._improved(float(value)):
@@ -182,22 +195,34 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             ),
         }
 
-    def _save_best(self, model: Any, row: dict[str, Any]) -> None:
-        best_dir = self.results_dir / "best_adapter"
-        best_dir.mkdir(parents=True, exist_ok=True)
-        model.save_pretrained(best_dir)
-        (best_dir / "best_info.json").write_text(
+    def _save_adapter(
+        self, model: Any, row: dict[str, Any], destination: Path, value: Any
+    ) -> None:
+        destination.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(destination)
+        (destination / "best_info.json").write_text(
             json.dumps(
                 {
                     "experiment": self.cfg.experiment,
                     "metric": self.cfg.monitor_metric,
-                    "value": self.best,
+                    "value": value,
                     "epoch": row["epoch"],
                     "step": row["step"],
                 },
                 indent=2,
             ),
             encoding="utf-8",
+        )
+
+    def _save_best(self, model: Any, row: dict[str, Any]) -> None:
+        self._save_adapter(model, row, self.results_dir / "best_adapter", self.best)
+
+    def _save_ogni_eval(self, model: Any, row: dict[str, Any]) -> None:
+        if not getattr(self.cfg, "save_every_eval", False):
+            return
+        destination = self.results_dir / "adapters" / f"step{int(row['step']):06d}"
+        self._save_adapter(
+            model, row, destination, row["metrics"].get(self.cfg.monitor_metric)
         )
 
     def _persist(self) -> None:

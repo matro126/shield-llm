@@ -6,6 +6,7 @@ import csv
 import json
 import statistics
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,17 @@ COLORI = {"2B": "#4c8bf5", "8B": "#f5a04c", "32B": "#8b5cf6"}
 
 VISTE = {"F-F": "1", "F-FI": "1", "FL-F": "2", "FL-FI": "2"}
 TARGET = {"F-F": "R", "FL-F": "R", "F-FI": "R+I", "FL-FI": "R+I"}
+
+
+def chiave_esperimento(nome: str) -> tuple[int, int, int, str]:
+    parti = nome.split("_")
+    modello = parti[1] if len(parti) > 1 else ""
+    modalita = parti[2] if len(parti) > 2 else ""
+    dataset = parti[3] if len(parti) > 3 else ""
+    return (MODELLI.index(modello) if modello in MODELLI else 99,
+            MODALITA.index(modalita) if modalita in MODALITA else 99,
+            DATASETS.index(dataset) if dataset in DATASETS else 99, nome)
+
 
 try:
     import matplotlib
@@ -123,7 +135,7 @@ def confronto_appaiato(
             for (k, v), r in indice.items()
             if v == a and (k, b) in indice
         ),
-        key=lambda p: p[0]["esperimento"],
+        key=lambda p: chiave_esperimento(p[0]["esperimento"]),
     )
 
     dati, delta = [], []
@@ -184,11 +196,11 @@ def g_early(righe: list[dict], out: Path) -> str:
     dati.sort(key=lambda r: (r["epoche"], r["best_epoca"]))
     fig, ax = plt.subplots(figsize=(10, max(4, len(dati) * 0.32)))
     y = range(len(dati))
-    ax.barh(list(y), [r["epoche"] for r in dati], color="#dfe4ea",
-            edgecolor="#c3c9d1", label="epoche eseguite")
-    ax.barh(list(y), [r["best_epoca"] for r in dati],
+    ax.barh(list(y), [r["epoche"] for r in dati],
             color=[COLORI.get(r["modello"], "#888") for r in dati],
-            label="fino al best checkpoint")
+            label="epoche eseguite")
+    ax.barh(list(y), [r["best_epoca"] for r in dati], color="#dfe4ea",
+            edgecolor="#c3c9d1", label="fino al best checkpoint")
     for i, r in enumerate(dati):
         ax.plot(r["best_epoca"], i, "|", color="#111", ms=13, mew=2)
         ax.text(r["epoche"] + 0.12, i, f"best all'epoca {r['best_epoca']:.0f}",
@@ -198,7 +210,7 @@ def g_early(righe: list[dict], out: Path) -> str:
     fermati = sum(1 for r in dati if r["early_stopped"])
     ax.set_title(f"Quanto ha girato ogni esperimento e dove stava il best\n"
                  f"{fermati}/{len(dati)} fermati dall'early stopping · "
-                 f"la parte grigia è addestramento dopo il best", fontsize=10)
+                 f"la parte grigia è fino al best, quella colorata è dopo il best", fontsize=10)
     ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
     ax.set_xlim(0, max(r["epoche"] for r in dati) * 1.32)
     return salva(fig, out, "rq2_early_stopping.png")
@@ -238,7 +250,8 @@ def g_barre(righe: list[dict], metrica: str, out: Path, nome: str, titolo: str) 
     return salva(fig, out, nome)
 
 
-def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str) -> str:
+def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str,
+            metrica: str = "", fisso: str = "") -> str:
     dati = [(k, va, vb) for k, va, vb in sintesi.get("coppie", [])
             if va is not None and vb is not None]
     if not dati:
@@ -256,13 +269,15 @@ def g_delta(sintesi: dict, a: str, b: str, titolo: str, out: Path, nome: str) ->
     ax.set_yticklabels([k for k, _, _ in dati], fontsize=8.5)
     media = sum(vb - va for _, va, vb in dati) / len(dati)
     vinte = sum(1 for _, va, vb in dati if vb > va)
-    ax.plot([], [], "o", color="#5b6b7f", label=a)
-    ax.plot([], [], "o", color="#3f9b5c", label=f"{b} (meglio)")
-    ax.plot([], [], "o", color="#c0504d", label=f"{b} (peggio)")
-    ax.set_xlabel("metrica sul best checkpoint")
-    ax.set_title(f"{titolo}\n{b} vince in {vinte}/{len(dati)} coppie · "
-                 f"Δ medio {media:+.4f} · ogni riga confronta due esperimenti "
-                 f"identici tranne che per questa scelta", fontsize=10)
+    ax.plot([], [], "o", color="#5b6b7f", label=f"{a} (punto grigio)")
+    ax.plot([], [], "o", color="#3f9b5c", label=f"{b} (punto verde = migliore)")
+    ax.plot([], [], "o", color="#c0504d", label=f"{b} (punto rosso = peggiore)")
+    ax.set_xlabel(f"{metrica or 'metrica'} del best checkpoint su validation")
+    riga2 = f"ogni riga: {fisso}" if fisso else ("ogni riga confronta due esperimenti "
+                                                  "identici tranne che per questa scelta")
+    riga2 = "\n".join(textwrap.wrap(riga2, width=95))
+    ax.set_title(f"{titolo}\n{b} vince in {vinte}/{len(dati)} coppie su {metrica or 'metrica'} · "
+                 f"Δ medio {media:+.4f}\n{riga2}", fontsize=10)
     ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
     lo = min(v for _, x, y in dati for v in (x, y))
     hi = max(v for _, x, y in dati for v in (x, y))
@@ -277,30 +292,42 @@ def g_sezioni(ok: list[dict], metrica: str, out: Path) -> str:
         return ""
     solo_f = {(r["modello"], r["modalita"], r["viste"]): valore(r, metrica)
               for r in ok if r["target"] == "R"}
-    fi.sort(key=lambda r: valore(r, metrica, "findings"))
-    y = range(len(fi))
-    fig, ax = plt.subplots(figsize=(10, max(4, len(fi) * 0.4)))
-    ax.barh([i - 0.22 for i in y], [valore(r, metrica, "findings") for r in fi],
-            0.4, color="#4c8bf5", label="findings")
-    ax.barh([i + 0.22 for i in y], [valore(r, metrica, "impression") or 0 for r in fi],
-            0.4, color="#f5a04c", label="impression")
+    fi.sort(key=lambda r: chiave_esperimento(r["esperimento"]))
+    y = list(range(len(fi)))
+    fig, ax = plt.subplots(figsize=(10, max(4, len(fi) * 0.45)))
+
     for i, r in enumerate(fi):
+        f = valore(r, metrica, "findings")
+        imp = valore(r, metrica, "impression")
         media = valore(r, metrica)
-        if media is not None:
-            ax.plot(media, i, "D", color="#111", ms=6, zorder=3)
         rif = solo_f.get((r["modello"], r["modalita"], r["viste"]))
+        punti = [v for v in (f, imp, media, rif) if v is not None]
+        if len(punti) > 1:
+            ax.plot([min(punti), max(punti)], [i, i], "-", color="#dde1e7", lw=1.8, zorder=1)
         if rif is not None:
-            ax.plot(rif, i - 0.22, "|", color="#c0504d", ms=16, mew=2.5, zorder=3)
-    ax.plot([], [], "D", color="#111", label="media (la metrica riportata)")
-    ax.plot([], [], "|", color="#c0504d", ms=12, mew=2.5,
-            label="findings dell'esperimento senza impression")
-    ax.set_yticks(list(y))
+            ax.plot(rif, i, "o", ms=9, color="#b5bcc7", markeredgecolor="#8a919c",
+                    zorder=2)
+        if f is not None:
+            ax.plot(f, i, "o", ms=9, color="#4c8bf5", zorder=3)
+        if imp is not None:
+            ax.plot(imp, i, "^", ms=9, color="#f5a04c", zorder=3)
+        if media is not None:
+            ax.plot(media, i, "D", ms=7, color="#111", zorder=4)
+
+    ax.plot([], [], "o", ms=9, color="#b5bcc7", markeredgecolor="#8a919c",
+            label="findings dello stesso modello senza impression nel target")
+    ax.plot([], [], "o", ms=9, color="#4c8bf5", label="findings (target con impression)")
+    ax.plot([], [], "^", ms=9, color="#f5a04c", label="impression")
+    ax.plot([], [], "D", ms=7, color="#111", label="media (la metrica riportata)")
+    ax.set_yticks(y)
     ax.set_yticklabels([r["esperimento"] for r in fi], fontsize=8.5)
-    ax.set_xlabel(metrica)
-    ax.set_title("La media riportata sta fra le due sezioni\n"
-                 "se l'impression e' molto piu' alta, la media non misura i reperti",
-                 fontsize=10)
-    ax.legend(fontsize=8, loc="lower right"); ax.grid(axis="x", alpha=.3)
+    ax.set_xlabel(f"{metrica} del best checkpoint su validation")
+    riga3 = "\n".join(textwrap.wrap(
+        "la media (◆) sta fra findings (●) e impression (▲); il pallino grigio è quanto "
+        "lo stesso modello fa sui findings quando non deve scrivere anche l'impression",
+        width=100))
+    ax.set_title(riga3, fontsize=10)
+    ax.legend(fontsize=7.5, loc="lower right"); ax.grid(axis="x", alpha=.3)
     return salva(fig, out, "rq9_sezioni.png")
 
 
@@ -493,7 +520,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
                         else "—"
                     ),
                 ]
-                for r in sorted(ok, key=lambda r: r["esperimento"])
+                for r in sorted(ok, key=lambda r: chiave_esperimento(r["esperimento"]))
             ],
         ),
         "",
@@ -523,7 +550,8 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
 
     if G:
         md += [g_delta(s, "lora", "qlora", "LoRA contro QLoRA",
-                       out, "rq3_lora_qlora.png")]
+                       out, "rq3_lora_qlora.png", metrica=metrica,
+                       fisso="stesso modello e stesso dataset, cambia solo lora/qlora")]
     md += ["## 4. Quanto impatta la dimensione del modello", ""]
     md += [
         tabella(
@@ -622,17 +650,19 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     if G:
         md += [g_delta(s5, "1 immagine", "2 immagini",
                        "Effetto della proiezione laterale",
-                       out, "rq5_laterale.png")]
+                       out, "rq5_laterale.png", metrica=metrica,
+                       fisso="stesso modello, stessa modalità (lora/qlora) e stesso "
+                             "target, cambia solo il numero di proiezioni")]
     md += [
         "## 6. Quanto impatta l'aggiunta dell'impression",
         "",
-        "**Attenzione**: fra un target di soli reperti e uno con anche "
-        "l'impressione la metrica complessiva non è confrontabile — la prima "
+        "**Attenzione**: fra un target di soli findings e uno con anche "
+        "l'impression la metrica complessiva non è confrontabile — la prima "
         "misura una sezione, la seconda la media di due. Il confronto qui sotto "
         "usa perciò la sola sezione **findings**, presente in entrambi: dice se "
-        "chiedere anche l'impressione peggiora o migliora i reperti.",
+        "chiedere anche l'impression peggiora o migliora i findings.",
         "",
-        f"**{s6['n']} coppie**, aggiungere l'impressione migliora i reperti in "
+        f"**{s6['n']} coppie**, aggiungere l'impression migliora i findings in "
         f"**{s6['vittorie_b']}**, Δ medio **{segno(s6['media'])}**.",
         "",
         t6,
@@ -648,7 +678,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
                     num(valore(r, metrica, "impression")),
                     num(valore(r, metrica)),
                 ]
-                for r in sorted(ok, key=lambda r: r["esperimento"])
+                for r in sorted(ok, key=lambda r: chiave_esperimento(r["esperimento"]))
                 if r["target"] == "R+I"
             ],
         ),
@@ -656,9 +686,12 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     ]
 
     if G:
-        md += [g_delta(s6, "solo reperti", "reperti+impressione",
-                       "Effetto dell'impressione sui soli reperti",
-                       out, "rq6_impressione.png")]
+        md += [g_delta(s6, "solo findings", "findings+impression",
+                       "Effetto dell'impression sui soli findings",
+                       out, "rq6_impressione.png", metrica=metrica,
+                       fisso="stesso modello, stessa modalità e stesse proiezioni, "
+                             "cambia solo se il target includeva anche l'impression "
+                             "(qui misurato solo sui findings)")]
     md += [
         "## 7. Andamento delle loss",
         "",
@@ -691,7 +724,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
                     num(r["val_loss"], 3),
                     r["valutazioni"],
                 ]
-                for r in sorted(ok, key=lambda r: r["esperimento"])
+                for r in sorted(ok, key=lambda r: chiave_esperimento(r["esperimento"]))
             ],
         ),
         "",
@@ -746,7 +779,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     solo_f = {(r["modello"], r["modalita"], r["viste"]): valore(r, metrica)
               for r in ok if r["target"] == "R"}
     dati9, scarti, contro = [], [], []
-    for r in sorted(fi, key=lambda r: r["esperimento"]):
+    for r in sorted(fi, key=lambda r: chiave_esperimento(r["esperimento"])):
         vf = valore(r, metrica, "findings")
         vi = valore(r, metrica, "impression")
         vm = valore(r, metrica)
@@ -770,7 +803,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     if contro:
         md += [f"I findings degli esperimenti con impression differiscono da quelli senza "
                f"di **{segno(statistics.fmean(contro))}** in media: e' l'unico confronto "
-               f"che dice se chiedere anche l'impression aiuta o danneggia i reperti.", ""]
+               f"che dice se chiedere anche l'impression aiuta o danneggia i findings.", ""]
     md += [tabella(["esperimento", "findings", "impression", "media riportata",
                     "findings del gemello senza impression", "Δ"], dati9), ""]
     if G:
