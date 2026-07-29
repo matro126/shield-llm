@@ -7,7 +7,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from shield.training import main
 
-OVERRIDES: dict = {"lora_r": 32, "lora_alpha": 64}
+OVERRIDES: dict = {"per_device_train_batch_size": 8}
 
 if __name__ == "__main__":
     raise SystemExit(main(__file__, OVERRIDES))
