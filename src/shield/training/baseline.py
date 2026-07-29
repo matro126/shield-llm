@@ -112,18 +112,23 @@ def run_baseline(
     print(f"  formato   : {formatted}/{len(predictions)} generazioni contengono {SEP}")
 
     print("calcolo delle metriche (la suite completa richiede qualche minuto)…")
+    metric_kwargs = {
+        "chexbert_translate": cfg.chexbert_translate,
+        "chexbert_translator": cfg.chexbert_translator,
+    }
     sectioned = sectioned_metrics(
         predictions, references, metrics_names, cfg.target,
-        metric_fn=compute_text_metrics,
+        metric_fn=compute_text_metrics, **metric_kwargs,
     )
-    raw = compute_text_metrics(predictions, references, metrics_names)
+    raw = compute_text_metrics(predictions, references, metrics_names, **metric_kwargs)
 
     by_factor = disaggregate(
         records, predictions, references,
         factor_keys=list(DISAGGREGATE_BY),
         metric_fn=lambda preds, refs: flatten_sectioned(
             sectioned_metrics(
-                preds, refs, metrics_names, cfg.target, metric_fn=compute_text_metrics
+                preds, refs, metrics_names, cfg.target,
+                metric_fn=compute_text_metrics, **metric_kwargs,
             )
         ),
         min_subgroup_size=MIN_SUBGROUP_SIZE,

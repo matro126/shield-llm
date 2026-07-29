@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -53,24 +54,47 @@ def _translator(model_type: str, device: str | None):
     return tokenizer, model, resolved
 
 
+_SENTENCE = re.compile(r"(?<=[.;:!?])\s+")
+
+
+def _split_for_translation(text: str, tokenizer, max_tokens: int) -> list[str]:
+    pieces: list[str] = []
+    current: list[str] = []
+    length = 0
+    for sentence in _SENTENCE.split(text.strip()):
+        if not sentence:
+            continue
+        size = len(tokenizer.tokenize(sentence))
+        if current and length + size > max_tokens:
+            pieces.append(" ".join(current))
+            current, length = [], 0
+        current.append(sentence)
+        length += size
+    if current:
+        pieces.append(" ".join(current))
+    return pieces
+
+
 def translate(
     texts: list[str],
     model_type: str = "Helsinki-NLP/opus-mt-it-en",
     device: str | None = None,
     batch_size: int = 32,
+    max_tokens: int = 400,
 ) -> list[str]:
     import torch
 
     tokenizer, model, resolved = _translator(model_type, device)
-    pending = sorted(
-        {
-            text.strip()
-            for text in texts
-            if text.strip() and (model_type, text.strip()) not in _TRANSLATIONS
-        }
-    )
-    for start in range(0, len(pending), batch_size):
-        chunk = pending[start : start + batch_size]
+    per_text: list[list[str]] = []
+    pending: set[str] = set()
+    for text in texts:
+        pieces = _split_for_translation(text, tokenizer, max_tokens) if text.strip() else []
+        per_text.append(pieces)
+        pending.update(p for p in pieces if (model_type, p) not in _TRANSLATIONS)
+
+    ordered = sorted(pending)
+    for start in range(0, len(ordered), batch_size):
+        chunk = ordered[start : start + batch_size]
         batch = tokenizer(
             chunk, return_tensors="pt", padding=True, truncation=True, max_length=512
         ).to(resolved)
@@ -80,7 +104,11 @@ def translate(
             chunk, tokenizer.batch_decode(generated, skip_special_tokens=True)
         ):
             _TRANSLATIONS[(model_type, source)] = rendered
-    return [_TRANSLATIONS.get((model_type, text.strip()), "") for text in texts]
+
+    return [
+        " ".join(_TRANSLATIONS.get((model_type, p), "") for p in pieces).strip()
+        for pieces in per_text
+    ]
 
 
 @lru_cache(maxsize=2)
