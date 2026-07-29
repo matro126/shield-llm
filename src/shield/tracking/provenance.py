@@ -120,6 +120,100 @@ def dvc_dataset_hash(
     return None
 
 
+def sha256_manifest(
+    root: str | Path,
+    max_bytes: int = 1 << 20,
+    pattern: str = "*",
+) -> dict[str, Any]:
+    base = Path(root)
+    if not base.is_dir():
+        return {"hash": "sha256:absent", "files": 0, "bytes": 0}
+    digest = hashlib.sha256()
+    files = 0
+    total = 0
+    for path in sorted(base.rglob(pattern)):
+        if not path.is_file():
+            continue
+        size = path.stat().st_size
+        digest.update(str(path.relative_to(base)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(size).encode("utf-8"))
+        digest.update(b"\0")
+        if size <= max_bytes:
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+        files += 1
+        total += size
+    return {"hash": "sha256:" + digest.hexdigest(), "files": files, "bytes": total}
+
+
+def _resolve(candidate: str | Path, root: Path) -> Path:
+    path = Path(candidate)
+    return path if path.is_absolute() else root / path
+
+
+def model_provenance(
+    config: Mapping[str, Any],
+    root: str | Path = ".",
+) -> dict[str, Any]:
+    base = Path(root)
+    out: dict[str, Any] = {
+        "base_model": config.get("base_model") or "",
+        "path": str(config.get("model_path") or ""),
+        "load_in_4bit": bool(config.get("load_in_4bit")),
+    }
+    if not out["path"]:
+        return out
+    resolved = _resolve(out["path"], base)
+    out.update(sha256_manifest(resolved))
+    if config.get("hash_base_model_full") and resolved.is_dir():
+        out["hash_full"] = sha256_tree(resolved)
+    return out
+
+
+def metric_provenance(
+    config: Mapping[str, Any],
+    root: str | Path = ".",
+) -> dict[str, Any]:
+    base = Path(root)
+    out: dict[str, Any] = {}
+
+    metrics = set(config.get("eval_metrics") or ()) | set(config.get("test_metrics") or ())
+    if "chexbert" not in metrics:
+        return out
+
+    translator = config.get("chexbert_translator") or ""
+    if config.get("chexbert_translate") and translator:
+        resolved = _resolve(translator, base)
+        out["translator"] = {
+            "name": str(translator),
+            "local": resolved.is_dir(),
+            "hash": sha256_tree(resolved) if resolved.is_dir() else "not-local",
+        }
+
+    for candidate in (
+        base / "models" / "others" / "chexbert" / "chexbert.pth",
+        base / "models" / "evaluation" / "chexbert" / "chexbert.pth",
+        Path.home() / ".cache" / "chexbert" / "chexbert.pth",
+    ):
+        if candidate.is_file():
+            out["chexbert_checkpoint"] = {
+                "path": str(candidate),
+                "hash": sha256_file(candidate),
+            }
+            break
+    else:
+        out["chexbert_checkpoint"] = {"path": None, "hash": "unavailable"}
+
+    glossary = config.get("chexbert_glossary") or ""
+    if glossary:
+        resolved = _resolve(glossary, base)
+        out["glossary"] = {
+            "path": str(glossary),
+            "hash": sha256_file(resolved) if resolved.is_file() else "absent",
+        }
+    return out
+
+
 def dataset_provenance(
     config: Mapping[str, Any],
     root: str | Path = ".",

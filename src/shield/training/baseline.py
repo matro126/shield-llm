@@ -23,6 +23,12 @@ def run_baseline(
         operational_metrics,
         sectioned_metrics,
     )
+    from ..tracking import (
+        dvc_dataset_hash,
+        git_metadata,
+        metric_provenance,
+        model_provenance,
+    )
     from .evaluation import (
         DISAGGREGATE_BY,
         MIN_SUBGROUP_SIZE,
@@ -168,6 +174,15 @@ def run_baseline(
             "gen_batch_size": cfg.gen_batch_size,
             "max_new_tokens": cfg.max_new_tokens,
             "repetition_penalty": cfg.repetition_penalty,
+        },
+        "provenance": {
+            "git": git_metadata(project_root),
+            "dvc": {
+                "dataset_hash": dvc_dataset_hash(cfg.dataset_root, project_root)
+                or "unavailable"
+            },
+            "model": model_provenance(cfg.as_dict(), project_root),
+            "metrics": metric_provenance(cfg.as_dict(), project_root),
         },
         "created_at": now_iso(),
     }

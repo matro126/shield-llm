@@ -157,6 +157,8 @@ class Config:
     repetition_penalty: float = 1.1
     chexbert_translate: bool = False
     chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en"
+    chexbert_glossary: str = ""
+    hash_base_model_full: bool = False
     save_every_eval: bool = False
 
     test_metrics: tuple[str, ...] = (

@@ -246,7 +246,12 @@ def run_experiment(
     print(f"  token di loss nel probe: {n_loss_tokens}")
     length_stats = sequence_length_probe(processor, train_records, cfg.max_seq_length)
 
-    from ..tracking import dvc_dataset_hash, git_metadata
+    from ..tracking import (
+        dvc_dataset_hash,
+        git_metadata,
+        metric_provenance,
+        model_provenance,
+    )
 
     writer = ResultsWriter(
         results / "results.json",
@@ -279,6 +284,8 @@ def run_experiment(
                     "dataset_hash": dvc_dataset_hash(cfg.dataset_root, project_root)
                     or "unavailable"
                 },
+                "model": model_provenance(cfg.as_dict(), project_root),
+                "metrics": metric_provenance(cfg.as_dict(), project_root),
                 "mlflow": None,
             },
             "sequence_length": length_stats,
