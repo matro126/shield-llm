@@ -8,8 +8,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from shield.training import main
 
 OVERRIDES: dict = {
-    "lora_r": 8,
-    "lora_alpha": 16,
+    "lora_r": 16,
+    "lora_alpha": 32,
     "lora_dropout": 0.0,
     "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
     "learning_rate": 1e-05,
