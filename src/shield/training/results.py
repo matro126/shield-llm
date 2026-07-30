@@ -83,6 +83,7 @@ def validation_row(
     sectioned: dict[str, Any],
     eval_seconds: float,
     elapsed_s: float,
+    format_compliance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sections = {
         name: ({k: float(v) for k, v in values.items()}
@@ -103,6 +104,7 @@ def validation_row(
             for key, value in values.items()
         },
         "sections": sections,
+        "format_compliance": format_compliance,
         "eval_seconds": round(float(eval_seconds), 1),
         "elapsed_s": round(float(elapsed_s), 1),
     }
@@ -115,6 +117,10 @@ def flatten_validation_row(row: dict[str, Any]) -> dict[str, Any]:
         "val_loss": row["val_loss"],
     }
     flat.update(row.get("metrics", {}))
+    formato = row.get("format_compliance") or {}
+    if formato.get("separator_expected"):
+        flat["format_ratio"] = formato["ratio"]
+        flat["format_missing"] = formato["missing"]
     flat["eval_seconds"] = row["eval_seconds"]
     flat["elapsed_s"] = row["elapsed_s"]
     return flat

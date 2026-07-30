@@ -118,7 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     from shield.training.evaluation import (
         flatten_sectioned,
+        format_compliance,
         generate_predictions,
+        stampa_formato,
     )
     from shield.training.model import load_model_and_processor
 
@@ -194,10 +196,14 @@ def main(argv: list[str] | None = None) -> int:
           f"throughput {operational['throughput_req_s']:.2f}/s  "
           f"VRAM picco {operational.get('vram_peak_gb', 0):.1f} GB")
 
+    formato = format_compliance(records, predictions, cfg.target)
+    stampa_formato(formato, cfg.target)
+
     print("calcolo delle metriche (la suite completa richiede qualche minuto)…")
     metric_kwargs = {
         "chexbert_translate": cfg.chexbert_translate,
         "chexbert_translator": cfg.chexbert_translator,
+        "bertscore_model_type": cfg.bertscore_model,
     }
     sectioned = sectioned_metrics(
         predictions, references, metrics, cfg.target,
@@ -235,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         "target": cfg.target,
         "metrics": metrics,
         "by_section": sectioned,
+        "format_compliance": formato,
         "operational": {k: round(float(v), 4) for k, v in operational.items()},
         "generation_s": round(generation_s, 1),
         "infrastructure": profilo,
@@ -297,11 +304,15 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "metrics.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    mancanti = set(formato["missing_ids"])
     with (out_dir / "predictions.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["id", "reference", "prediction"])
+        writer.writerow(["id", "reference", "prediction", "has_sep"])
         for record, reference, prediction in zip(records, references, predictions):
-            writer.writerow([record["id"], reference, prediction])
+            writer.writerow([
+                record["id"], reference, prediction,
+                int(str(record["id"]) not in mancanti),
+            ])
 
     if cfg.mlflow_enabled and not args.no_mlflow:
         try:
@@ -344,6 +355,13 @@ def main(argv: list[str] | None = None) -> int:
                 run = mlflow.active_run()
                 payload["mlflow_run_id"] = run.info.run_id if run else None
                 log_numeric_metrics(operational, prefix="operational")
+                if formato["separator_expected"]:
+                    mlflow.log_metric(
+                        f"{args.split}.format_compliance", float(formato["ratio"])
+                    )
+                    mlflow.log_metric(
+                        f"{args.split}.format_missing", float(formato["missing"])
+                    )
                 if profilo and not profilo.get("errore"):
                     log_numeric_metrics(profilo["richiesta_singola"],
                                         prefix="infra.single")

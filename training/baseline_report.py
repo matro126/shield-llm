@@ -19,7 +19,6 @@ def load(training_root: Path) -> list[dict]:
         m = json.loads(path.read_text(encoding="utf-8"))
         ident = m.get("identity", {})
         mean = (m.get("by_section") or {}).get("findings") or {}
-        raw = m.get("raw") or {}
         oper = m.get("operational") or {}
         env = m.get("environment") or {}
         rows.append(
@@ -33,7 +32,9 @@ def load(training_root: Path) -> list[dict]:
                 "rouge1": mean.get("rouge1"),
                 "bleu": mean.get("bleu"),
                 "bleu_1": mean.get("bleu_1"),
-                "raw_rougeL": raw.get("rougeL"),
+                "impression_rougeL": ((m.get("by_section") or {})
+                                     .get("impression") or {}).get("rougeL"),
+                "sep_missing": (m.get("format_compliance") or {}).get("missing"),
                 "sep_ratio": (m.get("format_compliance") or {}).get("ratio"),
                 "vram_gb": env.get("vram_peak_allocated_gb") or env.get("vram_peak_gb"),
                 "gen_s": (m.get("generation") or {}).get("seconds"),
@@ -105,7 +106,7 @@ def markdown(rows: list[dict]) -> str:
     out += [
         "## Dettaglio",
         "",
-        "| esperimento | n | ROUGE-L | BLEU-4 | ROUGE-L integrale | `<SEP>` | VRAM | gen |",
+        "| esperimento | n | ROUGE-L findings | BLEU-4 | ROUGE-L impression | `<SEP>` | VRAM | gen |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for r in sorted(
@@ -115,16 +116,25 @@ def markdown(rows: list[dict]) -> str:
             DATASETS.index(r["dataset"]) if r["dataset"] in DATASETS else 9,
         ),
     ):
-        sep = "n/d" if r["target"] == "findings" else f"{(r['sep_ratio'] or 0):.1%}"
+        mancanti = r["sep_missing"]
+        sep = (
+            "n/d" if r["target"] == "findings"
+            else f"{(r['sep_ratio'] or 0):.1%}"
+            + (f" (−{mancanti})" if mancanti else "")
+        )
         out.append(
             f"| {r['esperimento']} | {r['n']} | {fmt(r['rougeL'])} | {fmt(r['bleu'])} "
-            f"| {fmt(r['raw_rougeL'])} | {sep} "
+            f"| {fmt(r['impression_rougeL'])} | {sep} "
             f"| {fmt(r['vram_gb'], 1)} GB | {fmt(r['gen_s'], 0)} s |"
         )
     out += [
         "",
         "`<SEP>` non si applica ai dataset con i soli reperti: una sezione sola",
-        "non ha separatore.",
+        "non ha separatore. Dove è atteso, fra parentesi il numero di generazioni",
+        "che non lo contengono: per quelle l'impression non è separabile e le",
+        "metriche di sezione attribuiscono tutto il testo ai findings. Gli id sono",
+        "in `metrics.json` → `format_compliance.missing_ids` e nella colonna",
+        "`has_sep` di `predictions.csv`.",
         "",
     ]
 

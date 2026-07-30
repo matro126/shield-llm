@@ -34,7 +34,7 @@ from shield.training import main
 # Iperparametri specifici di questo esperimento. Vuoto = usa defaults.toml.
 # Esempio:  OVERRIDES = {"learning_rate": 2e-5, "per_device_train_batch_size": 4}
 OVERRIDES: dict = {
-    'eval_metrics': ['bleu', 'rougeL', 'chexbert'],
+    'eval_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'monitor_metric': 'findings.chexbert_f1_micro_top5',
     'save_every_eval': True,
     'early_stopping_patience': 99,

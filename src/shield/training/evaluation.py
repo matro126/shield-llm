@@ -24,6 +24,46 @@ def prompts_of(record: dict[str, Any]) -> tuple[str, str]:
     return system, user
 
 
+def format_compliance(
+    records: Sequence[dict[str, Any]],
+    predictions: Sequence[str],
+    target: str,
+) -> dict[str, Any]:
+    atteso = target == "findings_impression"
+    senza = [
+        str(record["id"])
+        for record, prediction in zip(records, predictions)
+        if SEP not in prediction
+    ] if atteso else []
+    presenti = len(predictions) - len(senza)
+    return {
+        "separator_expected": atteso,
+        "with_separator": presenti if atteso else None,
+        "total": len(predictions),
+        "ratio": round(presenti / max(len(predictions), 1), 4) if atteso else None,
+        "missing": len(senza),
+        "missing_ids": senza,
+    }
+
+
+def stampa_formato(diagnostica: dict[str, Any], target: str, mostra: int = 10) -> None:
+    if not diagnostica["separator_expected"]:
+        print(f"  formato   : {SEP} non atteso con target={target}")
+        return
+    print(f"  formato   : {diagnostica['with_separator']}/{diagnostica['total']} "
+          f"generazioni contengono {SEP}")
+    mancanti = diagnostica["missing_ids"]
+    if not mancanti:
+        return
+    resto = len(mancanti) - mostra
+    print(f"  ⚠️  {len(mancanti)} generazioni senza {SEP}: per queste l'impression "
+          f"non e' separabile e le metriche di sezione attribuiscono tutto il testo "
+          f"a findings.")
+    print(f"      id: {', '.join(mancanti[:mostra])}"
+          f"{f' … (+{resto})' if resto > 0 else ''}")
+    print("      elenco completo in metrics.json → format_compliance.missing_ids")
+
+
 def flatten_sectioned(result: dict[str, Any]) -> dict[str, float]:
     flat: dict[str, float] = {}
     for section in SECTIONS:

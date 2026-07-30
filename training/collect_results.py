@@ -116,13 +116,11 @@ def experiment_row(
                     sezioni[f"{section}.{key}"] = value
         for key, value in sezioni.items():
             row[f"baseline.{key}"] = value
-        for key, value in (baseline.get("raw") or {}).items():
-            row[f"baseline.raw.{key}"] = value
         row["baseline.name"] = baseline.get("experiment")
         row["baseline.n_examples"] = baseline.get("n_examples")
-        row["baseline.format_compliance"] = (
-            baseline.get("format_compliance") or {}
-        ).get("ratio")
+        formato = baseline.get("format_compliance") or {}
+        row["baseline.format_compliance"] = formato.get("ratio")
+        row["baseline.format_missing"] = formato.get("missing")
         for key, value in sezioni.items():
             fine_tuned = row.get(f"test.{key}")
             if isinstance(fine_tuned, (int, float)) and isinstance(value, (int, float)):

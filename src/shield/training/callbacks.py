@@ -8,7 +8,7 @@ from typing import Any
 
 from transformers import TrainerCallback
 
-from .evaluation import compute_val_loss, evaluate_generative
+from .evaluation import compute_val_loss, evaluate_generative, format_compliance
 from ..data.prompts import split_sections
 from ..evaluation import preload_metric_models
 from .results import (
@@ -75,6 +75,7 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             list(cfg.eval_metrics),
             getattr(cfg, "chexbert_translate", False),
             getattr(cfg, "chexbert_translator", ""),
+            bertscore_model_type=cfg.bertscore_model,
         )
         if caricati:
             print(f"[eval] modelli di metrica caricati in memoria: {', '.join(caricati)}")
@@ -127,6 +128,7 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             ),
             chexbert_translate=self.cfg.chexbert_translate,
             chexbert_translator=self.cfg.chexbert_translator,
+            bertscore_model_type=self.cfg.bertscore_model,
         )
 
         row = validation_row(
@@ -136,6 +138,9 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             sectioned=sectioned,
             eval_seconds=time.time() - t_start,
             elapsed_s=self.dash.elapsed(),
+            format_compliance=format_compliance(
+                self.records, predictions, self.cfg.target
+            ),
         )
         self.history.append(row)
         self._dump_samples(row, predictions, references)
@@ -203,6 +208,7 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             "val_loss": self.best_row["val_loss"],
             "metrics": self.best_row["metrics"],
             "sections": self.best_row["sections"],
+            "format_compliance": self.best_row.get("format_compliance"),
             "adapter": str(
                 (self.results_dir / "best_adapter").relative_to(self.project_root)
             ),
@@ -277,6 +283,7 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             "n_examples": len(samples),
             "metrics": row["metrics"],
             "sections": row["sections"],
+            "format_compliance": row.get("format_compliance"),
             "samples": samples,
         }
 
@@ -293,14 +300,18 @@ class GenerativeEvalEarlyStop(TrainerCallback):
         write_json_atomic(folder / f"step{row['step']:06d}.json", payload)
         if best:
             write_json_atomic(self.results_dir / "val_predictions_best.json", payload)
+            mancanti = set(
+                (payload.get("format_compliance") or {}).get("missing_ids") or ()
+            )
             path = self.results_dir / "val_predictions_best.csv"
             with path.open("w", newline="", encoding="utf-8") as fh:
                 writer = csv.writer(fh)
-                writer.writerow(["id", "reference", "prediction"])
+                writer.writerow(["id", "reference", "prediction", "has_sep"])
                 for sample in payload["samples"]:
-                    writer.writerow(
-                        [sample["id"], sample["reference"], sample["prediction"]]
-                    )
+                    writer.writerow([
+                        sample["id"], sample["reference"], sample["prediction"],
+                        int(str(sample["id"]) not in mancanti),
+                    ])
 
 
     def on_epoch_end(self, args, state, control, **kwargs):

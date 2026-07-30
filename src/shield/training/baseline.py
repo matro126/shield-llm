@@ -33,7 +33,9 @@ def run_baseline(
         DISAGGREGATE_BY,
         MIN_SUBGROUP_SIZE,
         flatten_sectioned,
+        format_compliance,
         generate_predictions,
+        stampa_formato,
     )
     from .model import load_model_and_processor
     from .runner import _require_gpu, _seed_everything, _vram_peak
@@ -114,19 +116,19 @@ def run_baseline(
 
     from ..data.prompts import SEP
 
-    formatted = sum(1 for p in predictions if SEP in p)
-    print(f"  formato   : {formatted}/{len(predictions)} generazioni contengono {SEP}")
+    formato = format_compliance(records, predictions, cfg.target)
+    stampa_formato(formato, cfg.target)
 
     print("calcolo delle metriche (la suite completa richiede qualche minuto)…")
     metric_kwargs = {
         "chexbert_translate": cfg.chexbert_translate,
         "chexbert_translator": cfg.chexbert_translator,
+        "bertscore_model_type": cfg.bertscore_model,
     }
     sectioned = sectioned_metrics(
         predictions, references, metrics_names, cfg.target,
         metric_fn=compute_text_metrics, chexbert_per_class=True, **metric_kwargs,
     )
-    raw = compute_text_metrics(predictions, references, metrics_names, **metric_kwargs)
 
     by_factor = disaggregate(
         records, predictions, references,
@@ -160,12 +162,7 @@ def run_baseline(
         "target": cfg.target,
         "metrics": metrics_names,
         "by_section": sectioned,
-        "raw": raw,
-        "format_compliance": {
-            "with_separator": formatted,
-            "total": len(predictions),
-            "ratio": round(formatted / max(len(predictions), 1), 4),
-        },
+        "format_compliance": formato,
         "disaggregated": by_factor,
         "operational": {k: round(float(v), 4) for k, v in operational.items()},
         "environment": {"gpus": gpus, **_vram_peak()},
@@ -190,9 +187,11 @@ def run_baseline(
 
     with (out_dir / "predictions.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["id", "reference", "prediction"])
+        writer.writerow(["id", "reference", "prediction", "has_sep"])
         for record, reference, prediction in zip(records, references, predictions):
-            writer.writerow([record["id"], reference, prediction])
+            writer.writerow([
+                record["id"], reference, prediction, int(SEP in prediction)
+            ])
 
     if cfg.mlflow_enabled:
         try:
@@ -239,11 +238,14 @@ def run_baseline(
                              if "chexbert_cls_" not in k},
                             prefix=f"baseline.{section}",
                         )
-                log_numeric_metrics(raw, prefix="baseline.raw")
                 log_numeric_metrics(operational, prefix="operational")
-                mlflow.log_metric(
-                    "baseline.format_compliance", payload["format_compliance"]["ratio"]
-                )
+                if formato["separator_expected"]:
+                    mlflow.log_metric(
+                        "baseline.format_compliance", float(formato["ratio"])
+                    )
+                    mlflow.log_metric(
+                        "baseline.format_missing", float(formato["missing"])
+                    )
                 for name in ("metrics.json", "predictions.csv"):
                     path = out_dir / name
                     if path.is_file():
@@ -256,22 +258,20 @@ def run_baseline(
 
     print("\n" + "=" * 78)
     print(f"BASELINE {cfg.experiment}  ({len(records)} esempi di {cfg.test_split})")
-    print(f"  {'metrica':<34}{'findings':>12}{'impression':>13}{'integrale':>13}")
+    print(f"  {'metrica':<34}{'findings':>14}{'impression':>14}")
     findings = sectioned.get("findings") or {}
     impression = sectioned.get("impression") or {}
-    for key in sorted(set(findings) | set(impression) | set(raw)):
+    for key in sorted(set(findings) | set(impression)):
         if key == "num_examples" or "chexbert_cls_" in key:
             continue
         cells = "".join(
-            (f"{value:.4f}" if isinstance(value, float) else "—").rjust(width)
-            for value, width in (
-                (findings.get(key), 12),
-                (impression.get(key), 13),
-                (raw.get(key), 13),
-            )
+            (f"{value:.4f}" if isinstance(value, float) else "—").rjust(14)
+            for value in (findings.get(key), impression.get(key))
         )
         print(f"  {key:<34}{cells}")
-    print(f"\n  formato rispettato: {payload['format_compliance']['ratio']:.1%}")
+    if formato["separator_expected"]:
+        print(f"\n  formato rispettato: {formato['ratio']:.1%}"
+              f"  ({formato['missing']} generazioni senza {SEP})")
     print(f"  tempo generazione : {hms(generation_s)}")
     print(f"  risultati         : {out_dir / 'metrics.json'}")
     return payload

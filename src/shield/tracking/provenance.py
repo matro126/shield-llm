@@ -178,6 +178,21 @@ def metric_provenance(
     out: dict[str, Any] = {}
 
     metrics = set(config.get("eval_metrics") or ()) | set(config.get("test_metrics") or ())
+
+    if "bertscore" in metrics:
+        modello = config.get("bertscore_model") or "xlm-roberta-large"
+        resolved = _resolve(modello, base)
+        voce: dict[str, Any] = {"name": str(modello), "local": resolved.is_dir()}
+        if resolved.is_dir():
+            voce["hash"] = sha256_tree(resolved)
+        try:
+            from ..evaluation.metrics import _bertscore_layers
+
+            voce["num_layers"] = _bertscore_layers(str(modello))
+        except (ImportError, ValueError):
+            voce["num_layers"] = None
+        out["bertscore"] = voce
+
     if "chexbert" not in metrics:
         return out
 

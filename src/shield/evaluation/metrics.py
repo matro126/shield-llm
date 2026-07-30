@@ -134,6 +134,7 @@ def preload_metric_models(
     chexbert_translate: bool = False,
     chexbert_translator: str = "Helsinki-NLP/opus-mt-it-en",
     device: str | None = None,
+    bertscore_model_type: str = "xlm-roberta-large",
 ) -> list[str]:
     caricati = []
     if "chexbert" in metrics:
@@ -142,6 +143,9 @@ def preload_metric_models(
             caricati.append(chexbert_translator)
         _chexbert_labeler(device)
         caricati.append("chexbert")
+    if "bertscore" in metrics:
+        _bert_scorer(bertscore_model_type, _bertscore_layers(bertscore_model_type), "en")
+        caricati.append(bertscore_model_type)
     return caricati
 
 
@@ -212,12 +216,7 @@ def _mean_with_zeros(values, total: int) -> float:
     return float(values.sum().item() / total)
 
 
-def bertscore_f1(
-    predictions: list[str],
-    references: list[str],
-    model_type: str = "xlm-roberta-large",
-    lang: str = "en",
-) -> dict[str, float]:
+def _bertscore_layers(model_type: str) -> int:
     from bert_score.utils import model2layers
 
     num_layers = model2layers.get(model_type) or model2layers.get(Path(model_type).name)
@@ -228,6 +227,16 @@ def bertscore_f1(
             f"'xlm-roberta-large'); senza pin del layer i valori non sarebbero "
             f"confrontabili con le run precedenti."
         )
+    return int(num_layers)
+
+
+def bertscore_f1(
+    predictions: list[str],
+    references: list[str],
+    model_type: str = "xlm-roberta-large",
+    lang: str = "en",
+) -> dict[str, float]:
+    num_layers = _bertscore_layers(model_type)
 
     keys = ("bertscore_precision", "bertscore_recall", "bertscore_f1")
     preds, refs, keep = _nonempty_pairs(predictions, references)
