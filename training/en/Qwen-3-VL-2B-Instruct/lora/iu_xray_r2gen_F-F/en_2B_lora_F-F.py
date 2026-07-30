@@ -26,7 +26,7 @@ OVERRIDES: dict = {
     "tune_mm_llm": True,
     "tune_mm_vision": True,
     "tune_mm_mlp": True,
-    "vision_lr": 1e-06,
+    "vision_lr": 1e-05,
     "merger_lr": 1e-05,
     "per_device_train_batch_size": 4,
     "gradient_accumulation_steps": 4,
