@@ -1,27 +1,4 @@
 #!/usr/bin/env python3
-"""Fine-tuning lora di Qwen/Qwen3-VL-2B-Instruct su dataset/iu-xray/en/iu_xray_en_FL-FI.
-
-    lingua   en          (dalla cartella training/en/)
-    modello  Qwen-3-VL-2B-Instruct
-    modalita lora          (base in bf16)
-    dataset  iu_xray_r2gen_FL-FI   (views=frontal_lateral, target=findings_impression)
-
-GENERATO da training/generate.py — non modificare il corpo a mano: le modifiche
-verrebbero perse alla prossima rigenerazione. Per cambiare un iperparametro:
-
-  * di QUESTO esperimento  → il blocco OVERRIDES qui sotto (preservato);
-  * di TUTTI               → training/defaults.toml.
-
-Eseguibile da solo:
-
-    python training/en/Qwen-3-VL-2B-Instruct/lora/iu_xray_r2gen_FL-FI/en_2B_lora_FL-FI.py
-
-Risultati (loss di training, loss e metriche di validation, best adapter) in
-training/en/Qwen-3-VL-2B-Instruct/lora/iu_xray_r2gen_FL-FI/results/. La valutazione sul test set e' un processo a parte:
-
-    python training/evaluate_test.py --experiment en_2B_lora_FL-FI
-"""
-
 import sys
 from pathlib import Path
 
@@ -30,9 +7,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from shield.training import main
 
-# ── OVERRIDES ───────────────────────────────────────────────────────────────
-# Iperparametri specifici di questo esperimento. Vuoto = usa defaults.toml.
-# Esempio:  OVERRIDES = {"learning_rate": 2e-5, "per_device_train_batch_size": 4}
 OVERRIDES: dict = {
     'eval_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'test_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
@@ -42,7 +16,6 @@ OVERRIDES: dict = {
     'early_stopping_min_delta': 0.001,
     'max_epochs': 15,
 }
-# ── fine OVERRIDES ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     raise SystemExit(main(__file__, OVERRIDES))
