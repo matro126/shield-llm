@@ -49,6 +49,61 @@ def _dump_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def _component_rates(cfg: Config) -> dict[str, float]:
+    return {
+        "merger": cfg.merger_lr if cfg.merger_lr is not None else cfg.learning_rate,
+        "vision": cfg.vision_lr if cfg.vision_lr is not None else cfg.learning_rate,
+        "llm": cfg.learning_rate,
+    }
+
+
+def _component_of(name: str) -> str:
+    if "visual.merger" in name:
+        return "merger"
+    if "visual." in name:
+        return "vision"
+    return "llm"
+
+
+def build_optimizer(model: Any, cfg: Config) -> dict[str, Any]:
+    if cfg.vision_lr is None and cfg.merger_lr is None:
+        return {}
+    if cfg.optim != "adamw_torch":
+        raise RuntimeError(
+            f"optim='{cfg.optim}' non supportato con learning rate per componente."
+        )
+    import torch
+
+    rates = _component_rates(cfg)
+    buckets: dict[str, list[Any]] = {group: [] for group in rates}
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            buckets[_component_of(name)].append(param)
+
+    groups = [
+        {"params": params, "lr": rates[group], "weight_decay": cfg.weight_decay}
+        for group, params in buckets.items()
+        if params
+    ]
+    missing = [
+        group
+        for group, params in buckets.items()
+        if not params and rates[group] != cfg.learning_rate
+    ]
+    if missing:
+        raise RuntimeError(
+            f"learning rate dedicato per {missing} ma nessun parametro addestrabile "
+            "in quei gruppi: il valore verrebbe ignorato in silenzio."
+        )
+    for group, params in buckets.items():
+        if params:
+            print(f"[optim] {group}: {len(params)} tensori  lr={rates[group]:g}")
+    optimizer = torch.optim.AdamW(
+        groups, lr=cfg.learning_rate, weight_decay=cfg.weight_decay
+    )
+    return {"optimizers": (optimizer, None)}
+
+
 def _vram_peak() -> dict[str, float]:
     import torch
 
@@ -188,7 +243,12 @@ def run_experiment(
 
     from ..data import load_records
     from .callbacks import GenerativeEvalEarlyStop, LossLogger
-    from .model import QwenVLCollator, load_model_and_processor, sequence_length_probe
+    from .model import (
+        QwenVLCollator,
+        load_model_and_processor,
+        lora_adapter_report,
+        sequence_length_probe,
+    )
 
     script = Path(script_path).resolve()
     project_root = find_project_root(script.parent)
@@ -289,6 +349,10 @@ def run_experiment(
                 "mlflow": None,
             },
             "sequence_length": length_stats,
+            "lora": {
+                "adapters": lora_adapter_report(model),
+                "learning_rates": _component_rates(cfg),
+            },
             "timing": {"started_at": now_iso()},
         },
     )
@@ -372,6 +436,7 @@ def run_experiment(
             warmup_ratio=cfg.warmup_ratio,
             weight_decay=cfg.weight_decay,
             lr_scheduler_type=cfg.lr_scheduler_type,
+            optim=cfg.optim,
             bf16=True,
             gradient_checkpointing=True,
             gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -391,6 +456,7 @@ def run_experiment(
             train_dataset=train_records,
             data_collator=collator,
             callbacks=[LossLogger(dash, mlflow_mod), stopper],
+            **build_optimizer(model, cfg),
         )
 
         dash.status = "training in corso…"

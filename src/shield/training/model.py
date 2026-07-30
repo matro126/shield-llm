@@ -1,8 +1,103 @@
 from __future__ import annotations
 
 import random
+import re
 from pathlib import Path
 from typing import Any
+
+LORA_GROUPS = ("llm", "vision", "merger")
+
+
+def _alternation(names: Any) -> str:
+    return "|".join(re.escape(name) for name in names)
+
+
+def lora_targets(cfg: Any) -> Any:
+    if cfg.tune_mm_llm and not (cfg.tune_mm_vision or cfg.tune_mm_mlp):
+        return list(cfg.target_modules)
+    parts: list[str] = []
+    if cfg.tune_mm_llm:
+        parts.append(rf".*language_model\..*\.(?:{_alternation(cfg.target_modules)})")
+    if cfg.tune_mm_vision:
+        parts.append(
+            rf".*visual\.blocks\..*\.(?:{_alternation(cfg.vision_target_modules)})"
+        )
+    if cfg.tune_mm_mlp:
+        parts.append(
+            rf".*visual\.merger\.(?:.*\.)?(?:{_alternation(cfg.merger_target_modules)})"
+        )
+    return "|".join(f"(?:{part})" for part in parts)
+
+
+SIZE_KEY = {"min_pixels": "shortest_edge", "max_pixels": "longest_edge"}
+
+
+def apply_pixel_budget(processor: Any, cfg: Any) -> dict[str, int]:
+    wanted = {
+        name: getattr(cfg, name)
+        for name in ("min_pixels", "max_pixels")
+        if getattr(cfg, name) is not None
+    }
+    if not wanted:
+        return {}
+    image_processor = getattr(processor, "image_processor", None)
+    if image_processor is None:
+        raise RuntimeError(
+            f"min_pixels/max_pixels richiesti ma {type(processor).__name__} non "
+            "espone image_processor: il budget visuale verrebbe ignorato."
+        )
+    for name, value in wanted.items():
+        setattr(image_processor, name, value)
+        size = getattr(image_processor, "size", None)
+        if isinstance(size, dict):
+            size[SIZE_KEY[name]] = value
+    for name, value in wanted.items():
+        applied = getattr(image_processor, name, None)
+        if applied != value:
+            raise RuntimeError(
+                f"{name}={value} non e' stato applicato a "
+                f"{type(image_processor).__name__}: risulta {applied!r}."
+            )
+    return wanted
+
+
+def lora_adapter_report(model: Any) -> dict[str, int]:
+    found: dict[str, set[str]] = {group: set() for group in LORA_GROUPS}
+    for name, param in model.named_parameters():
+        if "lora_" not in name or not param.requires_grad:
+            continue
+        module = name.rsplit(".lora_", 1)[0]
+        if "visual.merger" in module:
+            found["merger"].add(module)
+        elif "visual." in module:
+            found["vision"].add(module)
+        else:
+            found["llm"].add(module)
+    return {group: len(modules) for group, modules in found.items()}
+
+
+def assert_lora_coverage(cfg: Any, report: dict[str, int]) -> None:
+    wanted = {
+        "llm": cfg.tune_mm_llm,
+        "vision": cfg.tune_mm_vision,
+        "merger": cfg.tune_mm_mlp,
+    }
+    flag = {"llm": "tune_mm_llm", "vision": "tune_mm_vision", "merger": "tune_mm_mlp"}
+    for group in LORA_GROUPS:
+        if wanted[group] and report[group] == 0:
+            raise RuntimeError(
+                f"{flag[group]} e' True ma nessun modulo del gruppo '{group}' ha "
+                f"ricevuto un adapter LoRA. Adapter trovati: {report}. I nomi dei "
+                "moduli attesi non corrispondono a quelli del modello caricato: "
+                "controlla target_modules, vision_target_modules e "
+                "merger_target_modules."
+            )
+        if not wanted[group] and report[group] > 0:
+            raise RuntimeError(
+                f"{flag[group]} e' False ma {report[group]} moduli del gruppo "
+                f"'{group}' hanno ricevuto un adapter LoRA. Adapter trovati: "
+                f"{report}. Verrebbe addestrato un componente che hai escluso."
+            )
 
 
 def load_model_and_processor(
@@ -25,6 +120,9 @@ def load_model_and_processor(
         print(f"[modello] dall'hub: {model_src}")
 
     processor = AutoProcessor.from_pretrained(model_src, trust_remote_code=True)
+    budget = apply_pixel_budget(processor, cfg)
+    if budget:
+        print(f"[processor] budget visuale: {budget}")
     tokenizer = processor.tokenizer
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -62,8 +160,14 @@ def load_model_and_processor(
             lora_dropout=cfg.lora_dropout,
             bias="none",
             task_type="CAUSAL_LM",
-            target_modules=list(cfg.target_modules),
+            target_modules=lora_targets(cfg),
         ),
+    )
+    report = lora_adapter_report(model)
+    assert_lora_coverage(cfg, report)
+    print(
+        f"[lora] adapter per gruppo: llm={report['llm']} "
+        f"vision={report['vision']} merger={report['merger']}"
     )
     model.print_trainable_parameters()
     return model, processor

@@ -8,6 +8,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from shield.training import main
 
 OVERRIDES: dict = {
+    'lora_r': 64,
+    'lora_alpha': 128,
+    'lora_dropout': 0.0,
+    'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj'],
+    'learning_rate': 1e-05,
+    'weight_decay': 0.0,
+    'warmup_ratio': 0.03,
+    'lr_scheduler_type': 'cosine',
     'eval_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'test_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'monitor_metric': 'findings.chexbert_f1_micro_top5',

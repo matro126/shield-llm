@@ -8,6 +8,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from shield.training import main
 
 OVERRIDES: dict = {
+    'lora_r': 8,
+    'lora_alpha': 16,
+    'lora_dropout': 0.0,
+    'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj'],
+    'learning_rate': 2e-07,
+    'weight_decay': 0.01,
+    'warmup_ratio': 0.03,
+    'lr_scheduler_type': 'cosine',
     'eval_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'test_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
     'monitor_metric': 'findings.chexbert_f1_micro_top5',
@@ -15,6 +23,17 @@ OVERRIDES: dict = {
     'early_stopping_patience': 99,
     'early_stopping_min_delta': 0.001,
     'max_epochs': 15,
+    'tune_mm_llm': True,
+    'tune_mm_vision': True,
+    'tune_mm_mlp': True,
+    'vision_lr': 1e-06,
+    'merger_lr': 1e-05,
+    'per_device_train_batch_size': 4,
+    'gradient_accumulation_steps': 4,
+    'optim': 'adamw_torch',
+    'max_seq_length': 4096,
+    'min_pixels': 12544,
+    'max_pixels': 451584,
 }
 
 if __name__ == "__main__":

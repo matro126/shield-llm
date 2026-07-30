@@ -128,8 +128,16 @@ class Config:
     target_modules: tuple[str, ...] = (
         "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
     )
+    vision_target_modules: tuple[str, ...] = ("qkv", "proj", "linear_fc1", "linear_fc2")
+    merger_target_modules: tuple[str, ...] = ("linear_fc1", "linear_fc2")
+
+    tune_mm_llm: bool = True
+    tune_mm_vision: bool = False
+    tune_mm_mlp: bool = False
 
     learning_rate: float = 1e-5
+    vision_lr: float | None = None
+    merger_lr: float | None = None
     max_epochs: int = 10
     per_device_train_batch_size: int = 8
     per_device_eval_batch_size: int = 8
@@ -137,7 +145,10 @@ class Config:
     warmup_ratio: float = 0.03
     weight_decay: float = 0.01
     lr_scheduler_type: str = "cosine"
+    optim: str = "adamw_torch"
     max_seq_length: int = 1024
+    min_pixels: int | None = None
+    max_pixels: int | None = None
     logging_steps: int = 5
     seed: int = 42
 
@@ -266,6 +277,49 @@ def validate(cfg: Config) -> None:
         )
     if cfg.per_device_train_batch_size < 1 or cfg.gradient_accumulation_steps < 1:
         raise ValueError("batch e gradient_accumulation_steps devono essere >= 1")
+
+    if not (cfg.tune_mm_llm or cfg.tune_mm_vision or cfg.tune_mm_mlp):
+        raise ValueError(
+            "tune_mm_llm, tune_mm_vision e tune_mm_mlp sono tutti False: non ci "
+            "sarebbe nessun modulo addestrabile."
+        )
+    if cfg.vision_lr is not None and not cfg.tune_mm_vision:
+        raise ValueError(
+            f"vision_lr={cfg.vision_lr} ma tune_mm_vision e' False: la vision tower "
+            "non riceve adapter, quindi il learning rate verrebbe ignorato in "
+            "silenzio. Attiva tune_mm_vision, oppure togli vision_lr."
+        )
+    if cfg.merger_lr is not None and not cfg.tune_mm_mlp:
+        raise ValueError(
+            f"merger_lr={cfg.merger_lr} ma tune_mm_mlp e' False: il projector non "
+            "riceve adapter, quindi il learning rate verrebbe ignorato in silenzio. "
+            "Attiva tune_mm_mlp, oppure togli merger_lr."
+        )
+    for name in ("learning_rate", "vision_lr", "merger_lr"):
+        value = getattr(cfg, name)
+        if value is not None and value <= 0:
+            raise ValueError(f"{name} deve essere positivo, ricevuto {value}")
+
+    if cfg.vision_lr is not None or cfg.merger_lr is not None:
+        if cfg.optim != "adamw_torch":
+            raise ValueError(
+                f"optim='{cfg.optim}' con learning rate per componente: i gruppi di "
+                "parametri sono costruiti su torch.optim.AdamW, quindi optim "
+                "verrebbe ignorato. Usa 'adamw_torch', oppure togli vision_lr e "
+                "merger_lr."
+            )
+    for name in ("min_pixels", "max_pixels"):
+        value = getattr(cfg, name)
+        if value is not None and value <= 0:
+            raise ValueError(f"{name} deve essere positivo, ricevuto {value}")
+    if (
+        cfg.min_pixels is not None
+        and cfg.max_pixels is not None
+        and cfg.min_pixels >= cfg.max_pixels
+    ):
+        raise ValueError(
+            f"min_pixels={cfg.min_pixels} >= max_pixels={cfg.max_pixels}"
+        )
 
 
 def load_defaults(project_root: Path) -> dict[str, Any]:
