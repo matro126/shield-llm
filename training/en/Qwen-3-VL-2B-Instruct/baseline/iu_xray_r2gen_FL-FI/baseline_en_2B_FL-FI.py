@@ -31,7 +31,9 @@ from shield.training import main_baseline
 # ── OVERRIDES ───────────────────────────────────────────────────────────────
 # Iperparametri specifici di questa baseline. Vuoto = usa defaults.toml.
 # Esempio:  OVERRIDES = {"baseline_max_samples": 50, "load_in_4bit": True}
-OVERRIDES: dict = {}
+OVERRIDES: dict = {
+    'test_metrics': ['bleu', 'rougeL', 'bertscore', 'chexbert'],
+}
 # ── fine OVERRIDES ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

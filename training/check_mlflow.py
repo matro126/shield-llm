@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,14 +15,39 @@ sys.path.insert(0, str(ROOT / "src"))
 from shield.training.config import (  # noqa: E402
     TRAINING_MODES,
     Identity,
-    build_config,
+    build_entrypoint_config,
 )
 
 OK, GAP, WARN, INFO = "OK", "LACUNA", "ATTENZIONE", "INFO"
 
 LEXICAL = ("bleu", "rougeL")
-SEMANTIC_CLINICAL = ("bertscore", "clinicalbert", "chexbert")
 OPERATIONAL = ("latency_p50_s", "latency_p95_s", "throughput_req_s", "vram_peak_gb")
+PRIMARY_METRIC_KEY = {
+    "bleu": "bleu",
+    "rouge": "rougeL",
+    "rougeL": "rougeL",
+    "bertscore": "bertscore_f1",
+    "clinicalbert": "clinicalbert_f1",
+    "chexbert": "chexbert_f1_micro_top5",
+}
+
+
+def metric_namespaces(
+    prefix: str,
+    metric_names: Sequence[str],
+    target: str,
+) -> list[str]:
+    sections = (
+        ("findings", "impression")
+        if target == "findings_impression"
+        else ("findings",)
+    )
+    return [
+        f"{prefix}.{section}.{PRIMARY_METRIC_KEY[name]}"
+        for section in sections
+        for name in metric_names
+        if name in PRIMARY_METRIC_KEY
+    ]
 
 
 class Report:
@@ -124,7 +150,7 @@ def check_static(cfg: Any, report: Report) -> None:
             "la catena git↔DVC↔MLflow sia completa.",
         )
 
-    tracked = [f"val.{m}" for m in cfg.eval_metrics]
+    tracked = metric_namespaces("val", cfg.eval_metrics, cfg.target)
     missing_lex = [m for m in LEXICAL if m not in cfg.eval_metrics]
     report.add(
         "R5", "BLEU/ROUGE-L per ogni run di training",
@@ -134,18 +160,17 @@ def check_static(cfg: Any, report: Report) -> None:
     )
 
     test_metrics = list(cfg.test_metrics)
-    posthoc = "chexbert" not in test_metrics
-    missing_sem = [
-        m for m in SEMANTIC_CLINICAL if m not in test_metrics and not posthoc
-    ]
+    has_bertscore = "bertscore" in test_metrics
+    clinical = [m for m in ("clinicalbert", "chexbert") if m in test_metrics]
     detail = f"test_metrics = {', '.join(test_metrics)}"
-    if posthoc:
-        detail += ("; CheXbert e ClinicalBERT sono modelli inglesi: su referti "
-                   "italiani si calcolano a posteriori sulle predizioni tradotte "
-                   "(scripts/evaluate/metrics_posthoc.py --metrics chexbert)")
+    if clinical:
+        detail += f"; metrica clinica selezionata: {', '.join(clinical)}"
+    else:
+        detail += "; nessuna metrica clinica selezionata per questa configurazione"
     report.add(
-        "R6", "BERTScore/ClinicalBERT/CheXbert sul test",
-        OK if not missing_sem else GAP, detail,
+        "R6", "BERTScore e metrica clinica sul test",
+        GAP if not has_bertscore else (OK if clinical else WARN),
+        detail,
     )
 
     source = (ROOT / "training" / "evaluate_test.py").read_text(encoding="utf-8")
@@ -200,11 +225,20 @@ def check_live(cfg: Any, report: Report) -> None:
         run_id = mlflow.active_run().info.run_id
         mlflow.log_metric("train.loss", 2.5, step=10)
         mlflow.log_metric("val.loss", 2.4, step=129)
-        for metric in LEXICAL:
-            mlflow.log_metric(f"val.{metric}", 0.25, step=129)
-        log_numeric_metrics(
-            {m: 0.5 for m in SEMANTIC_CLINICAL}, prefix="test"
+        validation_metrics = metric_namespaces(
+            "val",
+            cfg.eval_metrics,
+            cfg.target,
         )
+        test_metrics = metric_namespaces(
+            "test",
+            cfg.test_metrics,
+            cfg.target,
+        )
+        for metric in validation_metrics:
+            mlflow.log_metric(metric, 0.25, step=129)
+        for metric in test_metrics:
+            mlflow.log_metric(metric, 0.5)
         log_numeric_metrics({m: 1.0 for m in OPERATIONAL}, prefix="operational")
         artifact = store / "results.json"
         artifact.write_text(json.dumps({"probe": True}), encoding="utf-8")
@@ -233,8 +267,8 @@ def check_live(cfg: Any, report: Report) -> None:
 
     expected_metrics = (
         ["train.loss", "val.loss"]
-        + [f"val.{m}" for m in LEXICAL]
-        + [f"test.{m}" for m in SEMANTIC_CLINICAL]
+        + metric_namespaces("val", cfg.eval_metrics, cfg.target)
+        + metric_namespaces("test", cfg.test_metrics, cfg.target)
         + [f"operational.{m}" for m in OPERATIONAL]
     )
     missing_metrics = [m for m in expected_metrics if m not in metrics]
@@ -275,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Esperimento sconosciuto: {name}", file=sys.stderr)
         return 1
 
-    cfg = build_config(identities[name], ROOT, None)
+    cfg = build_entrypoint_config(identities[name], ROOT)
     print(f"═══ check tracking MLflow  (esperimento di riferimento: {name})")
     print(f"  dataset: {cfg.dataset_root}")
     print(f"  mlflow : {cfg.mlflow_tracking_uri or 'default (env o http://127.0.0.1:5000)'}")

@@ -21,8 +21,8 @@ seed = 42
 [validazione]
 eval_cadence = "epoch"
 eval_steps = 65
-eval_metrics = ["bleu", "rougeL", "bertscore", "chexbert"]
-monitor_metric = "findings.chexbert_f1_micro_top5"
+eval_metrics = ["bleu", "rougeL", "bertscore"]
+monitor_metric = "findings.bertscore_f1"
 monitor_mode = "max"
 early_stopping_patience = 5
 early_stopping_min_delta = 0.005   
@@ -42,7 +42,7 @@ archive_adapter = true
 bertscore_model = "xlm-roberta-large"
 
 [test]
-test_metrics = ["bleu", "rougeL", "bertscore", "chexbert"]
+test_metrics = ["bleu", "rougeL", "bertscore"]
 baseline_max_samples = 0        # 0 = tutto il test set
 
 [mlflow]

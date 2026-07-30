@@ -299,9 +299,8 @@ def g_sezioni(ok: list[dict], metrica: str, out: Path) -> str:
     for i, r in enumerate(fi):
         f = valore(r, metrica, "findings")
         imp = valore(r, metrica, "impression")
-        media = valore(r, metrica)
         rif = solo_f.get((r["modello"], r["modalita"], r["viste"]))
-        punti = [v for v in (f, imp, media, rif) if v is not None]
+        punti = [v for v in (f, imp, rif) if v is not None]
         if len(punti) > 1:
             ax.plot([min(punti), max(punti)], [i, i], "-", color="#dde1e7", lw=1.8, zorder=1)
         if rif is not None:
@@ -311,20 +310,18 @@ def g_sezioni(ok: list[dict], metrica: str, out: Path) -> str:
             ax.plot(f, i, "o", ms=9, color="#4c8bf5", zorder=3)
         if imp is not None:
             ax.plot(imp, i, "^", ms=9, color="#f5a04c", zorder=3)
-        if media is not None:
-            ax.plot(media, i, "D", ms=7, color="#111", zorder=4)
 
     ax.plot([], [], "o", ms=9, color="#b5bcc7", markeredgecolor="#8a919c",
             label="findings dello stesso modello senza impression nel target")
     ax.plot([], [], "o", ms=9, color="#4c8bf5", label="findings (target con impression)")
     ax.plot([], [], "^", ms=9, color="#f5a04c", label="impression")
-    ax.plot([], [], "D", ms=7, color="#111", label="media (la metrica riportata)")
     ax.set_yticks(y)
     ax.set_yticklabels([r["esperimento"] for r in fi], fontsize=8.5)
     ax.set_xlabel(f"{metrica} del best checkpoint su validation")
     riga3 = "\n".join(textwrap.wrap(
-        "la media (◆) sta fra findings (●) e impression (▲); il pallino grigio è quanto "
-        "lo stesso modello fa sui findings quando non deve scrivere anche l'impression",
+        "findings (●) e impression (▲) sono metriche separate; il pallino grigio è "
+        "quanto lo stesso modello fa sui findings quando non deve scrivere anche "
+        "l'impression",
         width=100))
     ax.set_title(riga3, fontsize=10)
     ax.legend(fontsize=7.5, loc="lower right"); ax.grid(axis="x", alpha=.3)
@@ -657,10 +654,10 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
         "## 6. Quanto impatta l'aggiunta dell'impression",
         "",
         "**Attenzione**: fra un target di soli findings e uno con anche "
-        "l'impression la metrica complessiva non è confrontabile — la prima "
-        "misura una sezione, la seconda la media di due. Il confronto qui sotto "
-        "usa perciò la sola sezione **findings**, presente in entrambi: dice se "
-        "chiedere anche l'impression peggiora o migliora i findings.",
+        "l'impression non esiste una metrica complessiva unica: Findings e "
+        "Impression sono valutati separatamente. Il confronto qui sotto usa "
+        "perciò la sola sezione **findings**, presente in entrambi: dice se chiedere "
+        "anche l'impression peggiora o migliora i findings.",
         "",
         f"**{s6['n']} coppie**, aggiungere l'impression migliora i findings in "
         f"**{s6['vittorie_b']}**, Δ medio **{segno(s6['media'])}**.",
@@ -670,13 +667,12 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     ]
     md += [
         tabella(
-            ["esperimento", "findings", "impression", "media"],
+            ["esperimento", "findings", "impression"],
             [
                 [
                     r["esperimento"],
                     num(valore(r, metrica, "findings")),
                     num(valore(r, metrica, "impression")),
-                    num(valore(r, metrica)),
                 ]
                 for r in sorted(ok, key=lambda r: chiave_esperimento(r["esperimento"]))
                 if r["target"] == "R+I"
@@ -782,20 +778,17 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     for r in sorted(fi, key=lambda r: chiave_esperimento(r["esperimento"])):
         vf = valore(r, metrica, "findings")
         vi = valore(r, metrica, "impression")
-        vm = valore(r, metrica)
         rif = solo_f.get((r["modello"], r["modalita"], r["viste"]))
         if vf is not None and vi is not None:
             scarti.append(vi - vf)
         if vf is not None and rif is not None:
             contro.append(vf - rif)
-        dati9.append([r["esperimento"], num(vf), num(vi), num(vm), num(rif),
+        dati9.append([r["esperimento"], num(vf), num(vi), num(rif),
                       segno(vf - rif) if (vf is not None and rif is not None) else "—"])
-    md += ["## 9. La media e' gonfiata dall'impression?", "",
-           "Per i dataset con entrambe le sezioni la metrica riportata e' la **media** di "
-           "findings e impression. L'impression e' corta e formulaica — in due referti su "
-           "tre e' una negazione gia' presente nel training — quindi e' facile da "
-           "azzeccare e tira su la media. Questa tabella la scompone, e confronta i "
-           "findings con quelli dell'esperimento gemello addestrato **senza** impression.",
+    md += ["## 9. Findings e Impression sono coerenti?", "",
+           "Per i dataset con entrambe le sezioni Findings e Impression hanno metriche "
+           "distinte. Questa tabella le mostra separatamente e confronta i Findings con "
+           "quelli dell'esperimento gemello addestrato **senza** Impression.",
            ""]
     if scarti:
         md += [f"L'impression supera i findings di **{segno(statistics.fmean(scarti))}** in "
@@ -804,7 +797,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
         md += [f"I findings degli esperimenti con impression differiscono da quelli senza "
                f"di **{segno(statistics.fmean(contro))}** in media: e' l'unico confronto "
                f"che dice se chiedere anche l'impression aiuta o danneggia i findings.", ""]
-    md += [tabella(["esperimento", "findings", "impression", "media riportata",
+    md += [tabella(["esperimento", "findings", "impression",
                     "findings del gemello senza impression", "Δ"], dati9), ""]
     if G:
         md += [g_sezioni(ok, metrica, out)]

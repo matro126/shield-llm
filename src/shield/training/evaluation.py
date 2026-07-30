@@ -56,12 +56,32 @@ def stampa_formato(diagnostica: dict[str, Any], target: str, mostra: int = 10) -
     if not mancanti:
         return
     resto = len(mancanti) - mostra
-    print(f"  ⚠️  {len(mancanti)} generazioni senza {SEP}: per queste l'impression "
-          f"non e' separabile e le metriche di sezione attribuiscono tutto il testo "
-          f"a findings.")
+    print(f"  ⚠️  {len(mancanti)} generazioni senza {SEP}: il parser prova a usare "
+          f"un header Impression; se non lo trova, le metriche di sezione "
+          f"attribuiscono tutto il testo a findings.")
     print(f"      id: {', '.join(mancanti[:mostra])}"
           f"{f' … (+{resto})' if resto > 0 else ''}")
     print("      elenco completo in metrics.json → format_compliance.missing_ids")
+
+
+def validate_sectioned_references(
+    records: Sequence[dict[str, Any]],
+    references: Sequence[str],
+    target: str,
+) -> None:
+    if target != "findings_impression":
+        return
+    missing = [
+        str(record["id"])
+        for record, reference in zip(records, references)
+        if SEP not in reference
+    ]
+    if missing:
+        raise RuntimeError(
+            f"{len(missing)} riferimenti senza il marcatore {SEP} pur essendo "
+            f"target findings_impression: {missing[:5]}. Il ground truth non e' "
+            "il target del dataset."
+        )
 
 
 def flatten_sectioned(result: dict[str, Any]) -> dict[str, float]:
@@ -189,16 +209,7 @@ def evaluate_generative(
         repetition_penalty,
         progress,
     )
-    if target == "findings_impression":
-        missing = [
-            r["id"] for r, ref in zip(records, references) if SEP not in ref
-        ]
-        if missing:
-            raise RuntimeError(
-                f"{len(missing)} riferimenti senza il marcatore {SEP} pur essendo "
-                f"target findings_impression: {missing[:5]}. Il ground truth non e' "
-                "il target del dataset."
-            )
+    validate_sectioned_references(records, references, target)
     sectioned = sectioned_metrics(
         predictions, references, list(metric_names), target,
         metric_fn=compute_text_metrics, **metric_kwargs

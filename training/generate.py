@@ -5,7 +5,6 @@ import argparse
 import ast
 import fnmatch
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from shield.training.config import (  # noqa: E402
     TRAINING_MODES,
     Identity,
     build_config,
+    read_overrides,
 )
 
 BEGIN = "# ── OVERRIDES ───────────────────────────────────────────────────────────────"
@@ -124,24 +124,6 @@ def baselines_for(experiments: list[Identity]) -> list[Identity]:
         baseline = experiment.baseline
         seen.setdefault(baseline.name, baseline)
     return [seen[name] for name in sorted(seen)]
-
-
-def read_overrides(script: Path) -> dict:
-    if not script.is_file():
-        return {}
-    text = script.read_text(encoding="utf-8")
-    match = re.search(r"^OVERRIDES\s*:\s*dict\s*=\s*(.+)\Z", text, re.M | re.S)
-    if not match:
-        return {}
-    snippet = match.group(1)
-    for end in range(len(snippet)):
-        try:
-            value = ast.literal_eval(snippet[: end + 1])
-        except (SyntaxError, ValueError):
-            continue
-        if isinstance(value, dict):
-            return value
-    return {}
 
 
 def format_overrides(overrides: dict) -> str:

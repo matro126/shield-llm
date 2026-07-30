@@ -36,6 +36,7 @@ def run_baseline(
         format_compliance,
         generate_predictions,
         stampa_formato,
+        validate_sectioned_references,
     )
     from .model import load_model_and_processor
     from .runner import _require_gpu, _seed_everything, _vram_peak
@@ -101,6 +102,7 @@ def run_baseline(
         model, processor, records, cfg.gen_batch_size,
         cfg.max_new_tokens, cfg.repetition_penalty, progress=on_batch,
     )
+    validate_sectioned_references(records, references, cfg.target)
     dash.phase = None
     generation_s = time.time() - t_gen
     print(f"\ngenerazione completata in {hms(generation_s)}")

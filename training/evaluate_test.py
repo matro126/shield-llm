@@ -15,7 +15,8 @@ from shield.training.config import (  # noqa: E402
     TRAINING_MODES,
     Identity,
     available_metric_keys,
-    build_config,
+    build_entrypoint_config,
+    resolve_metric_selection,
 )
 from shield.training.dashboard import LiveDashboard, hms  # noqa: E402
 
@@ -97,8 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     identity = experiments[args.experiment]
-    cfg = build_config(identity, ROOT, None)
-    metrics = list(args.metrics) if args.metrics else list(cfg.test_metrics)
+    cfg = build_entrypoint_config(identity, ROOT)
+    metric_names, metric_names_csv = resolve_metric_selection(
+        args.metrics,
+        cfg.test_metrics,
+    )
     results = ROOT / cfg.results_dir
     adapter = args.adapter or (results / "best_adapter")
     if not adapter.is_dir():
@@ -121,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         format_compliance,
         generate_predictions,
         stampa_formato,
+        validate_sectioned_references,
     )
     from shield.training.model import load_model_and_processor
 
@@ -147,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_samples:
         records = records[: args.max_samples]
     print(f"  esempi  : {len(records)}")
-    print(f"  metriche: {', '.join(metrics)}")
+    print(f"  metriche: {', '.join(metric_names)}")
 
     model, processor = load_model_and_processor(cfg, ROOT)
     model.load_adapter(str(adapter), adapter_name="best")
@@ -179,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.repetition_penalty,
         progress=on_batch,
     )
+    validate_sectioned_references(records, references, cfg.target)
     dash.phase = None
     generation_s = time.time() - t_gen
     print(f"\ngenerazione completata in {hms(generation_s)}")
@@ -206,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         "bertscore_model_type": cfg.bertscore_model,
     }
     sectioned = sectioned_metrics(
-        predictions, references, metrics, cfg.target,
+        predictions, references, metric_names, cfg.target,
         metric_fn=compute_text_metrics, chexbert_per_class=True, **metric_kwargs,
     )
     profilo = None
@@ -239,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         "adapter": str(adapter.relative_to(ROOT)),
         "n_examples": len(records),
         "target": cfg.target,
-        "metrics": metrics,
+        "metrics": metric_names,
         "by_section": sectioned,
         "format_compliance": formato,
         "operational": {k: round(float(v), 4) for k, v in operational.items()},
@@ -258,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
                   else f"    {key:<34}{value}")
 
     if not args.no_disaggregate:
-        disaggregate_metrics = args.disaggregate_metrics or metrics
+        disaggregate_metrics = args.disaggregate_metrics or metric_names
         print(f"\ndisaggregazione per fattore ({', '.join(disaggregate_metrics)}, "
               "per sezione come le metriche globali)…")
 
@@ -291,15 +297,16 @@ def main(argv: list[str] | None = None) -> int:
         ][:3]
         for factor, groups in by_factor.items():
             print(f"\n### {factor}")
-            for value, metrics in groups.items():
-                if metrics.get("status") == "not_estimable":
-                    print(f"  {value:<28}n={metrics['n']:<5}(sotto soglia "
+            for value, group_metrics in groups.items():
+                if group_metrics.get("status") == "not_estimable":
+                    print(f"  {value:<28}n={group_metrics['n']:<5}(sotto soglia "
                           f"{MIN_SUBGROUP_SIZE}: non stimabile)")
                 else:
                     cells = "  ".join(
-                        f"{key}={metrics[key]:.3f}" for key in shown if key in metrics
+                        f"{key}={group_metrics[key]:.3f}"
+                        for key in shown if key in group_metrics
                     )
-                    print(f"  {value:<28}n={metrics['n']:<5}{cells}")
+                    print(f"  {value:<28}n={group_metrics['n']:<5}{cells}")
 
     (out_dir / "metrics.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -330,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
                     "split": args.split,
                     "adapter": str(adapter.relative_to(ROOT)),
                     "n_examples": len(records),
-                    "metrics": ",".join(args.metrics),
+                    "metrics": metric_names_csv,
                 },
                 "mlflow": {
                     "tracking_uri": cfg.mlflow_tracking_uri or None,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import re
 import tomllib
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, fields
@@ -147,8 +149,8 @@ class Config:
 
     eval_cadence: str = "epoch"
     eval_steps: int = 65
-    eval_metrics: tuple[str, ...] = ("bleu", "rougeL")
-    monitor_metric: str = "findings.rougeL"
+    eval_metrics: tuple[str, ...] = ("bleu", "rougeL", "bertscore")
+    monitor_metric: str = "findings.bertscore_f1"
     monitor_mode: str = "max"
     early_stopping_patience: int = 5
     early_stopping_min_delta: float = 0.01
@@ -163,7 +165,7 @@ class Config:
     hash_base_model_full: bool = False
     save_every_eval: bool = False
 
-    test_metrics: tuple[str, ...] = ("bleu", "rougeL")
+    test_metrics: tuple[str, ...] = ("bleu", "rougeL", "bertscore")
     baseline_max_samples: int | None = None
 
     mlflow_enabled: bool = True
@@ -196,6 +198,14 @@ METRIC_KEYS: dict[str, tuple[str, ...]] = {
         "chexbert_f1_macro_top5",
     ),
 }
+
+
+def resolve_metric_selection(
+    requested: Sequence[str] | None,
+    configured: Sequence[str],
+) -> tuple[list[str], str]:
+    names = list(requested) if requested else list(configured)
+    return names, ",".join(names)
 
 
 def metric_sections(target: str) -> tuple[str, ...]:
@@ -271,6 +281,24 @@ def load_defaults(project_root: Path) -> dict[str, Any]:
     return merged
 
 
+def read_overrides(script: Path) -> dict[str, Any]:
+    if not script.is_file():
+        return {}
+    text = script.read_text(encoding="utf-8")
+    match = re.search(r"^OVERRIDES\s*:\s*dict\s*=\s*(.+)\Z", text, re.M | re.S)
+    if not match:
+        return {}
+    snippet = match.group(1)
+    for end in range(len(snippet)):
+        try:
+            value = ast.literal_eval(snippet[: end + 1])
+        except (SyntaxError, ValueError):
+            continue
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
 def _coerce(name: str, value: Any) -> Any:
     if name in ("eval_max_samples", "baseline_max_samples") and value == 0:
         return None
@@ -311,3 +339,8 @@ def build_config(
     cfg = Config(**{k: _coerce(k, v) for k, v in values.items()})
     validate(cfg)
     return cfg
+
+
+def build_entrypoint_config(identity: Identity, project_root: Path) -> Config:
+    script = project_root / identity.script_relpath
+    return build_config(identity, project_root, read_overrides(script))
