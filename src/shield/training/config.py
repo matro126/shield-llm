@@ -148,7 +148,7 @@ class Config:
     eval_cadence: str = "epoch"
     eval_steps: int = 65
     eval_metrics: tuple[str, ...] = ("bleu", "rougeL")
-    monitor_metric: str = "rougeL"
+    monitor_metric: str = "findings.rougeL"
     monitor_mode: str = "max"
     early_stopping_patience: int = 5
     early_stopping_min_delta: float = 0.01
@@ -186,20 +186,31 @@ METRIC_KEYS: dict[str, tuple[str, ...]] = {
         "clinicalbert_precision", "clinicalbert_recall", "clinicalbert_f1",
     ),
     "chexbert": (
-        "chexbert_accuracy", "chexbert_f1_micro", "chexbert_f1_macro",
-        "chexbert_f1_micro_top5", "chexbert_f1_macro_top5",
-        "chexbert_any_sensitivity", "chexbert_any_specificity",
-        "chexbert_any_balanced", "chexbert_sens_macro", "chexbert_spec_macro",
-        "mesh_any_sensitivity", "mesh_any_specificity", "mesh_any_balanced",
-        "mesh_sens_macro", "mesh_spec_macro",
+        "chexbert_accuracy",
+        "chexbert_precision_micro", "chexbert_recall_micro", "chexbert_f1_micro",
+        "chexbert_precision_macro", "chexbert_recall_macro", "chexbert_f1_macro",
+        "chexbert_precision_micro_top5", "chexbert_recall_micro_top5",
+        "chexbert_f1_micro_top5",
+        "chexbert_precision_macro_top5", "chexbert_recall_macro_top5",
+        "chexbert_f1_macro_top5",
     ),
 }
 
 
-def available_metric_keys(metric_names: Sequence[str]) -> set[str]:
-    keys: set[str] = {"num_examples"}
+def metric_sections(target: str) -> tuple[str, ...]:
+    return ("findings", "impression") if target == "findings_impression" else ("findings",)
+
+
+def available_metric_keys(
+    metric_names: Sequence[str], target: str = ""
+) -> set[str]:
+    base: set[str] = {"num_examples"}
     for name in metric_names:
-        keys.update(METRIC_KEYS.get(name, ()))
+        base.update(METRIC_KEYS.get(name, ()))
+    if not target:
+        return base
+    keys = {f"{s}.{k}" for s in metric_sections(target) for k in base}
+    keys.add("val_loss")
     return keys
 
 
@@ -210,12 +221,15 @@ def validate(cfg: Config) -> None:
             f"eval_metrics contiene nomi ignoti {unknown}: verrebbero ignorati in "
             f"silenzio da compute_text_metrics. Ammessi: {sorted(METRIC_KEYS)}"
         )
-    keys = available_metric_keys(cfg.eval_metrics)
+    keys = available_metric_keys(cfg.eval_metrics, cfg.target)
     if cfg.monitor_metric not in keys:
         raise ValueError(
             f"monitor_metric='{cfg.monitor_metric}' non e' fra le metriche calcolate "
-            f"in validazione (eval_metrics={list(cfg.eval_metrics)} produce {sorted(keys)}). "
-            "Il gate non troverebbe il valore e nessun best adapter verrebbe salvato."
+            f"in validazione. Le metriche sono per sezione e non vengono mediate: il "
+            f"gate va indicato come '<sezione>.<metrica>', per esempio "
+            f"'findings.chexbert_f1_micro_top5'. Con target='{cfg.target}' e "
+            f"eval_metrics={list(cfg.eval_metrics)} le chiavi disponibili sono "
+            f"{sorted(keys)}."
         )
     unknown_test = [m for m in cfg.test_metrics if m not in METRIC_KEYS]
     if unknown_test:

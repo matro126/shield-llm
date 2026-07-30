@@ -88,14 +88,14 @@ def baseline(training_root: Path) -> dict[tuple[str, str], dict]:
         m = json.loads(path.read_text(encoding="utf-8"))
         ident = m.get("identity", {})
         out[(ident.get("model_short"), ident.get("dataset_code"))] = {
-            "media": (m.get("by_section") or {}).get("mean") or {},
             "findings": ((m.get("by_section") or {}).get("findings")) or {},
+            "impression": ((m.get("by_section") or {}).get("impression")) or {},
         }
     return out
 
 
 def valore(riga: dict, metrica: str, sezione: str | None = None) -> float | None:
-    fonte = riga["metriche"] if sezione is None else riga.get(sezione) or {}
+    fonte = riga.get(sezione or "findings") or {}
     v = fonte.get(metrica)
     return float(v) if isinstance(v, (int, float)) else None
 
@@ -406,7 +406,7 @@ def g_classifica(righe: list[dict], metrica: str, base: dict, out: Path) -> str:
         color=[COLORI.get(r["modello"], "#888") for r in dati],
     )
     for i, r in enumerate(dati):
-        b = base.get((r["modello"], r["dataset"]), {}).get("media", {}).get(metrica)
+        b = base.get((r["modello"], r["dataset"]), {}).get("findings", {}).get(metrica)
         if b is not None:
             ax.plot([b], [i], "|", color="#111", ms=14, mew=2)
     ax.set_xlabel(metrica)
@@ -741,7 +741,7 @@ def report(righe: list[dict], base: dict, metrica: str, out: Path) -> str:
     ]
     dati = []
     for r in sorted(ok, key=lambda r: -(valore(r, metrica) or 0)):
-        b = base.get((r["modello"], r["dataset"]), {}).get("media", {}).get(metrica)
+        b = base.get((r["modello"], r["dataset"]), {}).get("findings", {}).get(metrica)
         v = valore(r, metrica)
         dati.append(
             [

@@ -80,6 +80,12 @@ class GenerativeEvalEarlyStop(TrainerCallback):
             print(f"[eval] modelli di metrica caricati in memoria: {', '.join(caricati)}")
 
 
+    def _gate_value(self, row: dict[str, Any]) -> float | None:
+        if self.cfg.monitor_metric == "val_loss":
+            return float(row["val_loss"])
+        value = row["metrics"].get(self.cfg.monitor_metric)
+        return None if value is None else float(value)
+
     def _improved(self, value: float) -> bool:
         if self.best is None:
             return True
@@ -136,20 +142,27 @@ class GenerativeEvalEarlyStop(TrainerCallback):
         flat = flatten_validation_row(row)
         self.dash.log_val(flat)
 
+        value = self._gate_value(row)
+
         if self.mlflow is not None:
             self.mlflow.log_metric("val.loss", float(val_loss), step=state.global_step)
-            for key, value in flat.items():
+            if value is not None:
+                self.mlflow.log_metric(
+                    "val.gate", float(value), step=state.global_step
+                )
+            for key, item in flat.items():
                 if key in ("epoch", "step", "val_loss") or not isinstance(
-                    value, (int, float)
+                    item, (int, float)
                 ):
                     continue
+                if "chexbert_cls_" in key:
+                    continue
                 self.mlflow.log_metric(
-                    f"val.{key}".replace(" ", "_"), float(value), step=state.global_step
+                    f"val.{key}".replace(" ", "_"), float(item), step=state.global_step
                 )
 
         self._save_ogni_eval(model, row)
 
-        value = row["metrics"].get(self.cfg.monitor_metric)
         if value is not None and self._improved(float(value)):
             self.best = float(value)
             self.best_row = row
@@ -221,9 +234,7 @@ class GenerativeEvalEarlyStop(TrainerCallback):
         if not getattr(self.cfg, "save_every_eval", False):
             return
         destination = self.results_dir / "adapters" / f"step{int(row['step']):06d}"
-        self._save_adapter(
-            model, row, destination, row["metrics"].get(self.cfg.monitor_metric)
-        )
+        self._save_adapter(model, row, destination, self._gate_value(row))
 
     def _persist(self) -> None:
         self.writer.set_curves(self.dash.train_rows, self.history)

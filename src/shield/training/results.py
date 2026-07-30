@@ -84,21 +84,25 @@ def validation_row(
     eval_seconds: float,
     elapsed_s: float,
 ) -> dict[str, Any]:
+    sections = {
+        name: ({k: float(v) for k, v in values.items()}
+               if isinstance(values, dict) else None)
+        for name, values in (
+            ("findings", sectioned.get("findings")),
+            ("impression", sectioned.get("impression")),
+        )
+    }
     return {
         "epoch": round(float(epoch), 4),
         "step": int(step),
         "val_loss": float(val_loss),
-        "metrics": {k: float(v) for k, v in sectioned["mean"].items()},
-        "sections": {
-            name: ({k: float(v) for k, v in values.items()}
-                   if isinstance(values, dict) else None)
-            for name, values in (
-                ("findings", sectioned.get("findings")),
-                ("impression", sectioned.get("impression")),
-                ("report", sectioned.get("report")),
-                ("mesh", sectioned.get("mesh")),
-            )
+        "metrics": {
+            f"{name}.{key}": value
+            for name, values in sections.items()
+            if isinstance(values, dict)
+            for key, value in values.items()
         },
+        "sections": sections,
         "eval_seconds": round(float(eval_seconds), 1),
         "elapsed_s": round(float(elapsed_s), 1),
     }
@@ -111,10 +115,6 @@ def flatten_validation_row(row: dict[str, Any]) -> dict[str, Any]:
         "val_loss": row["val_loss"],
     }
     flat.update(row.get("metrics", {}))
-    for section, values in (row.get("sections") or {}).items():
-        if isinstance(values, dict):
-            for key, value in values.items():
-                flat[f"{section}.{key}"] = value
     flat["eval_seconds"] = row["eval_seconds"]
     flat["elapsed_s"] = row["elapsed_s"]
     return flat

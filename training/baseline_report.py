@@ -18,7 +18,7 @@ def load(training_root: Path) -> list[dict]:
     for path in sorted(training_root.glob("*/*/baseline/*/results/metrics.json")):
         m = json.loads(path.read_text(encoding="utf-8"))
         ident = m.get("identity", {})
-        mean = (m.get("by_section") or {}).get("mean") or {}
+        mean = (m.get("by_section") or {}).get("findings") or {}
         raw = m.get("raw") or {}
         oper = m.get("operational") or {}
         env = m.get("environment") or {}

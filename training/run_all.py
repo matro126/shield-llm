@@ -145,7 +145,10 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 data = json.loads(canonical.read_text(encoding="utf-8"))
                 best = (
-                    {"metric": "rougeL", "value": data["by_section"]["mean"].get("rougeL")}
+                    {
+                        "metric": "findings.rougeL",
+                        "value": (data["by_section"]["findings"] or {}).get("rougeL"),
+                    }
                     if args.baselines
                     else data.get("best")
                 )

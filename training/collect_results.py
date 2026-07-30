@@ -99,9 +99,6 @@ def experiment_row(
         row["last.val_loss"] = val_curve[-1].get("val_loss")
 
     if test:
-        mean = ((test.get("by_section") or {}).get("mean")) or {}
-        for key, value in mean.items():
-            row[f"test.{key}"] = value
         row["test.n_examples"] = test.get("n_examples")
         row["test.split"] = test.get("split")
         for section in ("findings", "impression"):
@@ -111,8 +108,13 @@ def experiment_row(
                     row[f"test.{section}.{key}"] = value
 
     if baseline:
-        mean = ((baseline.get("by_section") or {}).get("mean")) or {}
-        for key, value in mean.items():
+        sezioni: dict[str, float] = {}
+        for section in ("findings", "impression"):
+            values = (baseline.get("by_section") or {}).get(section)
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    sezioni[f"{section}.{key}"] = value
+        for key, value in sezioni.items():
             row[f"baseline.{key}"] = value
         for key, value in (baseline.get("raw") or {}).items():
             row[f"baseline.raw.{key}"] = value
@@ -121,7 +123,7 @@ def experiment_row(
         row["baseline.format_compliance"] = (
             baseline.get("format_compliance") or {}
         ).get("ratio")
-        for key, value in mean.items():
+        for key, value in sezioni.items():
             fine_tuned = row.get(f"test.{key}")
             if isinstance(fine_tuned, (int, float)) and isinstance(value, (int, float)):
                 row[f"delta.{key}"] = round(fine_tuned - value, 6)

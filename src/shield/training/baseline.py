@@ -34,7 +34,6 @@ def run_baseline(
         MIN_SUBGROUP_SIZE,
         flatten_sectioned,
         generate_predictions,
-        mesh_metrics,
     )
     from .model import load_model_and_processor
     from .runner import _require_gpu, _seed_everything, _vram_peak
@@ -125,13 +124,9 @@ def run_baseline(
     }
     sectioned = sectioned_metrics(
         predictions, references, metrics_names, cfg.target,
-        metric_fn=compute_text_metrics, **metric_kwargs,
+        metric_fn=compute_text_metrics, chexbert_per_class=True, **metric_kwargs,
     )
     raw = compute_text_metrics(predictions, references, metrics_names, **metric_kwargs)
-    mesh = mesh_metrics(records, predictions, metrics_names, **metric_kwargs)
-    if mesh:
-        sectioned["mesh"] = {k.removeprefix("mesh_"): v for k, v in mesh.items()}
-        sectioned["mean"].update(mesh)
 
     by_factor = disaggregate(
         records, predictions, references,
@@ -236,7 +231,14 @@ def run_baseline(
             ):
                 run = mlflow.active_run()
                 payload["mlflow_run_id"] = run.info.run_id if run else None
-                log_numeric_metrics(sectioned["mean"], prefix="baseline")
+                for section in ("findings", "impression"):
+                    values = sectioned.get(section)
+                    if isinstance(values, dict):
+                        log_numeric_metrics(
+                            {k: v for k, v in values.items()
+                             if "chexbert_cls_" not in k},
+                            prefix=f"baseline.{section}",
+                        )
                 log_numeric_metrics(raw, prefix="baseline.raw")
                 log_numeric_metrics(operational, prefix="operational")
                 mlflow.log_metric(
@@ -254,14 +256,21 @@ def run_baseline(
 
     print("\n" + "=" * 78)
     print(f"BASELINE {cfg.experiment}  ({len(records)} esempi di {cfg.test_split})")
-    print(f"  {'metrica':<28}{'per sezione':>14}{'testo integrale':>18}")
-    for key in sorted(set(sectioned["mean"]) | set(raw)):
-        if key == "num_examples":
+    print(f"  {'metrica':<34}{'findings':>12}{'impression':>13}{'integrale':>13}")
+    findings = sectioned.get("findings") or {}
+    impression = sectioned.get("impression") or {}
+    for key in sorted(set(findings) | set(impression) | set(raw)):
+        if key == "num_examples" or "chexbert_cls_" in key:
             continue
-        a, b = sectioned["mean"].get(key), raw.get(key)
-        print(f"  {key:<28}"
-              f"{(f'{a:.4f}' if isinstance(a, float) else '—'):>14}"
-              f"{(f'{b:.4f}' if isinstance(b, float) else '—'):>18}")
+        cells = "".join(
+            (f"{value:.4f}" if isinstance(value, float) else "—").rjust(width)
+            for value, width in (
+                (findings.get(key), 12),
+                (impression.get(key), 13),
+                (raw.get(key), 13),
+            )
+        )
+        print(f"  {key:<34}{cells}")
     print(f"\n  formato rispettato: {payload['format_compliance']['ratio']:.1%}")
     print(f"  tempo generazione : {hms(generation_s)}")
     print(f"  risultati         : {out_dir / 'metrics.json'}")

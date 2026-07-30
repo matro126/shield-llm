@@ -119,7 +119,6 @@ def main(argv: list[str] | None = None) -> int:
     from shield.training.evaluation import (
         flatten_sectioned,
         generate_predictions,
-        mesh_metrics,
     )
     from shield.training.model import load_model_and_processor
 
@@ -202,12 +201,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     sectioned = sectioned_metrics(
         predictions, references, metrics, cfg.target,
-        metric_fn=compute_text_metrics, **metric_kwargs,
+        metric_fn=compute_text_metrics, chexbert_per_class=True, **metric_kwargs,
     )
-    mesh = mesh_metrics(records, predictions, metrics, **metric_kwargs)
-    if mesh:
-        sectioned["mesh"] = {k.removeprefix("mesh_"): v for k, v in mesh.items()}
-        sectioned["mean"].update(mesh)
     profilo = None
     if not args.no_profile:
         print("\nmetriche infrastrutturali (§3.8.3): latenza a batch 1 e curva di carico…")
@@ -245,15 +240,15 @@ def main(argv: list[str] | None = None) -> int:
         "infrastructure": profilo,
     }
 
-    print(f"\n=== METRICHE {args.split.upper()} — media delle sezioni ===")
-    for key, value in sectioned["mean"].items():
-        print(f"  {key:<28}{value:.4f}" if isinstance(value, float) else f"  {key:<28}{value}")
-    if sectioned["impression"] is not None:
-        for section in ("findings", "impression"):
-            print(f"\n  --- {section} ---")
-            for key, value in sectioned[section].items():
-                print(f"    {key:<26}{value:.4f}" if isinstance(value, float)
-                      else f"    {key:<26}{value}")
+    print(f"\n=== METRICHE {args.split.upper()} — per sezione, senza medie ===")
+    for section in ("findings", "impression"):
+        values = sectioned.get(section)
+        if not isinstance(values, dict):
+            continue
+        print(f"\n  --- {section} ---")
+        for key, value in values.items():
+            print(f"    {key:<34}{value:.4f}" if isinstance(value, float)
+                  else f"    {key:<34}{value}")
 
     if not args.no_disaggregate:
         disaggregate_metrics = args.disaggregate_metrics or metrics
@@ -279,11 +274,11 @@ def main(argv: list[str] | None = None) -> int:
         (out_dir / "disaggregated.json").write_text(
             json.dumps(by_factor, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        available = available_metric_keys(disaggregate_metrics)
+        available = available_metric_keys(disaggregate_metrics, cfg.target)
         shown = [
             key for key in (
-                "rougeL", "bleu", "bertscore_f1", "clinicalbert_f1",
-                "chexbert_f1_micro_top5",
+                "findings.rougeL", "findings.bleu", "findings.bertscore_f1",
+                "findings.clinicalbert_f1", "findings.chexbert_f1_micro_top5",
             )
             if key in available
         ][:3]
@@ -348,7 +343,6 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 run = mlflow.active_run()
                 payload["mlflow_run_id"] = run.info.run_id if run else None
-                log_numeric_metrics(sectioned["mean"], prefix=args.split)
                 log_numeric_metrics(operational, prefix="operational")
                 if profilo and not profilo.get("errore"):
                     log_numeric_metrics(profilo["richiesta_singola"],
@@ -361,9 +355,12 @@ def main(argv: list[str] | None = None) -> int:
                             {k: v for k, v in riga.items() if k != "batch_size"},
                             prefix=f"infra.batch{riga['batch_size']}")
                 for section in ("findings", "impression"):
-                    if isinstance(sectioned.get(section), dict):
+                    values = sectioned.get(section)
+                    if isinstance(values, dict):
                         log_numeric_metrics(
-                            sectioned[section], prefix=f"{args.split}.{section}"
+                            {k: v for k, v in values.items()
+                             if "chexbert_cls_" not in k},
+                            prefix=f"{args.split}.{section}",
                         )
                 for name in ("metrics.json", "disaggregated.json", "predictions.csv"):
                     path = out_dir / name
