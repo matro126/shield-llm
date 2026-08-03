@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
 import re
 import sys
 import textwrap
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 HEALTHY = "No Finding"
 IGNORED = {HEALTHY, "Other", "Unlabeled", "Support Devices"}
 DEFAULT_PROBE = ROOT / "training" / "probe_set.json"
+MAX_PROBE_SAMPLES = 30
 STEP_FILE = re.compile(r"step(\d+)\.json$")
 
 
@@ -58,21 +61,104 @@ def pathologies(sample: dict[str, Any]) -> list[str]:
     return [c for c in categories(sample) if c not in IGNORED]
 
 
-def build_probe(results: Path, n_healthy: int, n_sick: int, seed: int) -> dict[str, Any]:
-    samples = load_steps(results)[-1]["samples"]
-    healthy = sorted(s["id"] for s in samples if is_healthy(s))
-    sick = sorted(s["id"] for s in samples if pathologies(s))
+def _diverse_sample(
+    candidates: list[dict[str, Any]],
+    count: int,
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """Select cases while spreading coverage across diagnostic labels."""
+    if count <= 0 or not candidates:
+        return []
+    remaining = list(candidates)
+    frequencies = Counter(
+        label for sample in candidates for label in pathologies(sample)
+    )
+    selected: list[dict[str, Any]] = []
+    selected_counts: Counter[str] = Counter()
+    tie_break = {sample["id"]: rng.random() for sample in remaining}
+    while remaining and len(selected) < count:
+        def score(sample: dict[str, Any]) -> tuple[float, float]:
+            labels = pathologies(sample)
+            diversity = sum(
+                1.0 / ((selected_counts[label] + 1) * frequencies[label] ** 0.5)
+                for label in labels
+            )
+            return diversity, tie_break[sample["id"]]
+
+        chosen = max(remaining, key=score)
+        remaining.remove(chosen)
+        selected.append(chosen)
+        selected_counts.update(pathologies(chosen))
+    return selected
+
+
+def select_probe(
+    samples: list[dict[str, Any]],
+    n_healthy: int,
+    n_sick: int,
+    seed: int,
+) -> dict[str, Any]:
+    requested = n_healthy + n_sick
+    if n_healthy < 0 or n_sick < 0:
+        raise ValueError("Il numero di casi non può essere negativo.")
+    if requested == 0:
+        raise ValueError("Il probe set deve contenere almeno un caso.")
+    if requested > MAX_PROBE_SAMPLES:
+        raise ValueError(
+            f"Il probe set può contenere al massimo {MAX_PROBE_SAMPLES} casi "
+            f"(richiesti: {requested})."
+        )
+
     rng = random.Random(seed)
-    chosen_healthy = sorted(rng.sample(healthy, min(n_healthy, len(healthy))))
-    chosen_sick = sorted(rng.sample(sick, min(n_sick, len(sick))))
+    healthy = sorted((s for s in samples if is_healthy(s)), key=lambda s: s["id"])
+    sick = sorted((s for s in samples if pathologies(s)), key=lambda s: s["id"])
+    chosen_healthy = rng.sample(healthy, min(n_healthy, len(healthy)))
+
+    single = [s for s in sick if len(pathologies(s)) == 1]
+    multi = [s for s in sick if len(pathologies(s)) > 1]
+    multi_target = min(len(multi), round(n_sick * 0.4))
+    single_target = min(len(single), n_sick - multi_target)
+    if single_target + multi_target < n_sick:
+        missing = n_sick - single_target - multi_target
+        single_target += min(missing, len(single) - single_target)
+        missing = n_sick - single_target - multi_target
+        multi_target += min(missing, len(multi) - multi_target)
+
+    chosen_sick = _diverse_sample(single, single_target, rng)
+    chosen_sick += _diverse_sample(multi, multi_target, rng)
     labels = {s["id"]: pathologies(s) for s in samples}
+    chosen_healthy_ids = sorted(s["id"] for s in chosen_healthy)
+    chosen_sick_ids = sorted(s["id"] for s in chosen_sick)
+    covered = sorted({label for s in chosen_sick for label in pathologies(s)})
     return {
         "seed": seed,
-        "built_from": str(results.relative_to(ROOT)),
-        "healthy": chosen_healthy,
-        "sick": chosen_sick,
-        "labels": {i: labels.get(i, []) for i in chosen_healthy + chosen_sick},
+        "healthy": chosen_healthy_ids,
+        "sick": chosen_sick_ids,
+        "labels": {
+            uid: labels.get(uid, [])
+            for uid in chosen_healthy_ids + chosen_sick_ids
+        },
+        "selection": {
+            "strategy": "diagnosis_diversity_with_single_multi_balance",
+            "requested": requested,
+            "selected": len(chosen_healthy_ids) + len(chosen_sick_ids),
+            "healthy": len(chosen_healthy_ids),
+            "pathological_single": sum(
+                len(labels[uid]) == 1 for uid in chosen_sick_ids
+            ),
+            "pathological_multi": sum(
+                len(labels[uid]) > 1 for uid in chosen_sick_ids
+            ),
+            "covered_pathologies": covered,
+        },
     }
+
+
+def build_probe(results: Path, n_healthy: int, n_sick: int, seed: int) -> dict[str, Any]:
+    samples = load_steps(results)[-1]["samples"]
+    probe = select_probe(samples, n_healthy, n_sick, seed)
+    probe["built_from"] = str(results.relative_to(ROOT))
+    return probe
 
 
 TOKEN = re.compile(r"[^a-z0-9]+")
@@ -126,9 +212,28 @@ def rouge_l(prediction: str, reference: str) -> float:
     return _resolve_backend()(prediction, reference)
 
 
-def section_text(sample: dict[str, Any], key: str) -> str:
+def sample_text(
+    sample: dict[str, Any],
+    key: str,
+    *,
+    target: str,
+    section: str,
+) -> str:
     sections = sample.get(f"{key}_sections") or {}
-    return (sections.get("findings") or sample.get(key) or "").strip()
+    if section in {"findings", "impression"}:
+        return (sections.get(section) or "").strip()
+    if target != "findings_impression":
+        return (sections.get("findings") or sample.get(key) or "").strip()
+    findings = (sections.get("findings") or "").strip()
+    impression = (sections.get("impression") or "").strip()
+    if findings or impression:
+        return f"Findings:\n{findings}\n\nImpression:\n{impression}".strip()
+    return str(sample.get(key) or "").strip()
+
+
+def section_text(sample: dict[str, Any], key: str) -> str:
+    """Backward-compatible findings-only accessor."""
+    return sample_text(sample, key, target="findings", section="findings")
 
 
 def wrap(text: str, width: int, limit: int | None) -> list[str]:
@@ -145,6 +250,7 @@ def render_case(
     best: int | None,
     width: int,
     limit: int | None,
+    section: str,
 ) -> list[float]:
     found = [(d, next((s for s in d["samples"] if s["id"] == uid), None)) for d in steps]
     present = [(d, s) for d, s in found if s is not None]
@@ -152,7 +258,10 @@ def render_case(
         print(f"\n{uid}  — assente da queste generazioni")
         return []
 
-    reference = section_text(present[0][1], "reference")
+    target = present[0][0].get("target", "findings")
+    reference = sample_text(
+        present[0][1], "reference", target=target, section=section
+    )
     print(f"\n{'─' * (width + 22)}")
     print(f"{uid}   [{label}]")
     for line in wrap(reference, width, limit):
@@ -160,7 +269,12 @@ def render_case(
 
     scores = []
     for payload, sample in present:
-        prediction = section_text(sample, "prediction")
+        prediction = sample_text(
+            sample,
+            "prediction",
+            target=payload.get("target", target),
+            section=section,
+        )
         score = rouge_l(prediction, reference)
         scores.append(score)
         mark = " ★" if best is not None and payload["step"] == best else "  "
@@ -176,6 +290,7 @@ def summary(
     steps: list[dict[str, Any]],
     probe: dict[str, Any],
     best: int | None,
+    section: str,
 ) -> None:
     healthy, sick = set(probe["healthy"]), set(probe["sick"])
     print(f"\n{'═' * 78}")
@@ -184,17 +299,29 @@ def summary(
     rows = []
     for payload in steps:
         by_id = {s["id"]: s for s in payload["samples"]}
+        target = payload.get("target", "findings")
 
         def mean(ids: set[str]) -> float:
             values = [
-                rouge_l(section_text(by_id[i], "prediction"), section_text(by_id[i], "reference"))
+                rouge_l(
+                    sample_text(
+                        by_id[i], "prediction", target=target, section=section
+                    ),
+                    sample_text(
+                        by_id[i], "reference", target=target, section=section
+                    ),
+                )
                 for i in ids
                 if i in by_id
             ]
             return sum(values) / len(values) if values else 0.0
 
         h, s = mean(healthy), mean(sick)
-        overall = (payload.get("sections", {}).get("findings") or payload.get("metrics", {})).get("rougeL", 0.0)
+        if section in {"findings", "impression"}:
+            overall_metrics = payload.get("sections", {}).get(section) or {}
+        else:
+            overall_metrics = payload.get("metrics", {})
+        overall = overall_metrics.get("rougeL", 0.0)
         mark = " ★" if best is not None and payload["step"] == best else "  "
         print(f"{int(payload['epoch']):>3}{mark}{payload['step']:>6} {h:>8.3f} {s:>8.3f} {h - s:>8.3f} {overall:>11.3f}")
         rows.append((payload["epoch"], payload["step"], h, s, overall))
@@ -214,6 +341,84 @@ def summary(
                 print("\nATTENZIONE: il best_adapter non coincide con l'epoca migliore sui casi malati.")
 
 
+REVIEW_FIELDS = (
+    "review_id",
+    "experiment",
+    "section",
+    "epoch",
+    "step",
+    "case_id",
+    "group",
+    "diagnostic_categories",
+    "reference",
+    "prediction",
+    "false_positive_finding",
+    "omitted_finding",
+    "incorrect_location",
+    "incorrect_severity",
+    "spurious_comparison",
+    "omitted_comparison",
+    "major_errors",
+    "minor_errors",
+    "notes",
+)
+
+
+def export_review_csv(
+    steps: list[dict[str, Any]],
+    probe: dict[str, Any],
+    destination: Path,
+    *,
+    section: str,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    healthy = list(probe.get("healthy", []))
+    sick = list(probe.get("sick", []))
+    ids = [(uid, "healthy") for uid in healthy]
+    ids += [(uid, "pathological") for uid in sick]
+    review_id = 0
+    with destination.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REVIEW_FIELDS)
+        writer.writeheader()
+        for payload in steps:
+            by_id = {sample["id"]: sample for sample in payload["samples"]}
+            target = payload.get("target", "findings")
+            for uid, group in ids:
+                sample = by_id.get(uid)
+                if sample is None:
+                    continue
+                review_id += 1
+                writer.writerow(
+                    {
+                        "review_id": f"R{review_id:04d}",
+                        "experiment": payload.get("experiment", ""),
+                        "section": section,
+                        "epoch": payload.get("epoch", ""),
+                        "step": payload.get("step", ""),
+                        "case_id": uid,
+                        "group": group,
+                        "diagnostic_categories": " | ".join(
+                            probe.get("labels", {}).get(uid, [])
+                        ),
+                        "reference": sample_text(
+                            sample, "reference", target=target, section=section
+                        ),
+                        "prediction": sample_text(
+                            sample, "prediction", target=target, section=section
+                        ),
+                        "false_positive_finding": "",
+                        "omitted_finding": "",
+                        "incorrect_location": "",
+                        "incorrect_severity": "",
+                        "spurious_comparison": "",
+                        "omitted_comparison": "",
+                        "major_errors": "",
+                        "minor_errors": "",
+                        "notes": "",
+                    }
+                )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Confronta le generazioni di un esperimento su un probe set fisso."
@@ -221,24 +426,48 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("path", type=Path, help="cartella esperimento, results, o script .py")
     parser.add_argument("--probe", type=Path, default=DEFAULT_PROBE)
     parser.add_argument("--build-probe", action="store_true", help="crea il probe set e esci")
-    parser.add_argument("--healthy", type=int, default=3)
-    parser.add_argument("--sick", type=int, default=5)
+    parser.add_argument("--healthy", type=int, default=6)
+    parser.add_argument("--sick", type=int, default=14)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--width", type=int, default=96)
     parser.add_argument("--chars", type=int, default=320, help="0 = testo integrale")
     parser.add_argument("--only-summary", action="store_true")
+    parser.add_argument(
+        "--section",
+        choices=("target", "findings", "impression"),
+        default="target",
+        help="parte del referto da confrontare (default: target dell'esperimento)",
+    )
+    parser.add_argument(
+        "--export-review",
+        type=Path,
+        metavar="CSV",
+        help="esporta testi integrali e colonne vuote per la revisione manuale",
+    )
     args = parser.parse_args(argv)
 
     results = resolve_results(args.path)
     _resolve_backend()
 
     if args.build_probe:
-        probe = build_probe(results, args.healthy, args.sick, args.seed)
+        try:
+            probe = build_probe(results, args.healthy, args.sick, args.seed)
+        except ValueError as exc:
+            parser.error(str(exc))
         args.probe.parent.mkdir(parents=True, exist_ok=True)
         args.probe.write_text(json.dumps(probe, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"probe set scritto in {args.probe}")
         print(f"  sani   : {len(probe['healthy'])}  {', '.join(probe['healthy'])}")
         print(f"  malati : {len(probe['sick'])}  {', '.join(probe['sick'])}")
+        selection = probe.get("selection", {})
+        print(
+            f"  mix     : {selection.get('pathological_single', 0)} mono-patologia + "
+            f"{selection.get('pathological_multi', 0)} multi-patologia"
+        )
+        print(
+            "  diagnosi: "
+            + ", ".join(selection.get("covered_pathologies", []))
+        )
         return 0
 
     if not args.probe.is_file():
@@ -255,16 +484,23 @@ def main(argv: list[str] | None = None) -> int:
     print(f"risultati   : {results.relative_to(ROOT)}")
     print(f"valutazioni : {len(steps)}  (step {steps[0]['step']} → {steps[-1]['step']})")
     print(f"probe set   : {args.probe.name}  {len(probe['healthy'])} sani + {len(probe['sick'])} malati")
+    print(f"sezione     : {args.section}")
+
+    if args.export_review:
+        export_review_csv(steps, probe, args.export_review, section=args.section)
+        print(f"review CSV  : {args.export_review}")
 
     if not args.only_summary:
         limit = args.chars or None
         for uid in probe["healthy"]:
-            render_case(uid, "SANO", steps, best, args.width, limit)
+            render_case(uid, "SANO", steps, best, args.width, limit, args.section)
         for uid in probe["sick"]:
             labels = ", ".join(probe.get("labels", {}).get(uid, [])) or "patologico"
-            render_case(uid, labels.upper(), steps, best, args.width, limit)
+            render_case(
+                uid, labels.upper(), steps, best, args.width, limit, args.section
+            )
 
-    summary(steps, probe, best)
+    summary(steps, probe, best, args.section)
     return 0
 
 
