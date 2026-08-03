@@ -23,6 +23,7 @@ dependencies = [
     "pycocoevalcap>=1.2",  # BLEU coco-caption (§3.8.1) — confrontabile con R2Gen
     "pyyaml>=6.0",  # config e manifest dei dataset
     "qwen-vl-utils>=0.0.14",
+    "radgraph>=0.1.13",  # RadGraph F1 
     "rouge-score>=0.1.2",
     "scikit-learn>=1.8.0",
     "torch>=2.10,<2.11",
