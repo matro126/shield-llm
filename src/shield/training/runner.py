@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gc
 import json
 import platform
 import random
@@ -13,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, Identity, build_config
+from .clinical import build_clinical_records, build_stage_two_records
 from .dashboard import LiveDashboard, hms
-from .results import ResultsWriter, flatten_validation_row, now_iso
+from .results import ResultsWriter, flatten_validation_row, now_iso, write_json_atomic
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -47,6 +49,28 @@ def _dump_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(fh, fieldnames=keys)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def prepare_training_records(
+    train_records: list[dict[str, Any]], cfg: Config
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    if cfg.training_strategy == "standard":
+        stage_two, stage_two_stats = build_stage_two_records(train_records, [], cfg)
+        return [], stage_two, {"clinical": None, "stage_two": stage_two_stats}
+    clinical_records: list[dict[str, Any]] = []
+    clinical_stats: dict[str, Any] | None = None
+    if cfg.training_strategy == "clinical":
+        expected_images = 2 if cfg.views == "frontal_lateral" else 1
+        clinical_records, clinical_stats = build_clinical_records(
+            train_records, expected_images
+        )
+    stage_two, stage_two_stats = build_stage_two_records(
+        train_records, clinical_records, cfg
+    )
+    return clinical_records, stage_two, {
+        "clinical": clinical_stats,
+        "stage_two": stage_two_stats,
+    }
 
 
 def _component_rates(cfg: Config) -> dict[str, float]:
@@ -104,6 +128,95 @@ def build_optimizer(model: Any, cfg: Config) -> dict[str, Any]:
     return {"optimizers": (optimizer, None)}
 
 
+def _steps_per_epoch(record_count: int, cfg: Config) -> int:
+    batch = cfg.per_device_train_batch_size * cfg.gradient_accumulation_steps
+    return max(1, (record_count + batch - 1) // batch)
+
+
+def _training_arguments(cfg: Config, output_dir: Path, epochs: int) -> Any:
+    from transformers import TrainingArguments
+
+    return TrainingArguments(
+        output_dir=str(output_dir),
+        num_train_epochs=epochs,
+        per_device_train_batch_size=cfg.per_device_train_batch_size,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        learning_rate=cfg.learning_rate,
+        warmup_ratio=cfg.warmup_ratio,
+        weight_decay=cfg.weight_decay,
+        lr_scheduler_type=cfg.lr_scheduler_type,
+        optim=cfg.optim,
+        bf16=True,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        logging_steps=cfg.logging_steps,
+        eval_strategy="no",
+        save_strategy="no",
+        report_to=[],
+        remove_unused_columns=False,
+        dataloader_num_workers=cfg.dataloader_num_workers,
+        dataloader_persistent_workers=cfg.dataloader_persistent_workers,
+        seed=cfg.seed,
+        full_determinism=cfg.full_determinism,
+    )
+
+
+def run_clinical_pretraining(
+    model: Any,
+    collator: Any,
+    records: list[dict[str, Any]],
+    cfg: Config,
+    results: Path,
+    writer: ResultsWriter,
+    mlflow: Any | None,
+) -> dict[str, Any]:
+    from transformers import Trainer
+
+    from .callbacks import LossLogger
+
+    steps = _steps_per_epoch(len(records), cfg)
+    dash = LiveDashboard(
+        title=f"{cfg.experiment} clinical pretraining",
+        total_steps=steps * cfg.clinical_pretrain_epochs,
+    )
+    trainer = Trainer(
+        model=model,
+        args=_training_arguments(
+            cfg, results / "clinical_checkpoints", cfg.clinical_pretrain_epochs
+        ),
+        train_dataset=records,
+        data_collator=collator,
+        callbacks=[LossLogger(dash, mlflow, prefix="clinical.train")],
+        **build_optimizer(model, cfg),
+    )
+    dash.status = "clinical pretraining in corso…"
+    started = time.time()
+    train_result = trainer.train()
+    duration = round(time.time() - started, 1)
+    dash.stop()
+    dash.status = "clinical pretraining terminato"
+    dash.render()
+    model.save_pretrained(results / "clinical_adapter")
+    summary = {
+        "status": "completed",
+        "epochs": cfg.clinical_pretrain_epochs,
+        "records": len(records),
+        "runtime_s": duration,
+        "trainer_runtime_s": train_result.metrics.get("train_runtime"),
+        "history": dash.train_rows,
+        "adapter": str(results / "clinical_adapter"),
+    }
+    writer.set_in("stages", clinical=summary)
+    writer.flush()
+    if mlflow is not None:
+        mlflow.log_metric("clinical.runtime_s", duration)
+        mlflow.log_metric("clinical.records", len(records))
+        mlflow.log_metric("clinical.epochs", cfg.clinical_pretrain_epochs)
+    del trainer
+    gc.collect()
+    return summary
+
+
 def _vram_peak() -> dict[str, float]:
     import torch
 
@@ -132,12 +245,14 @@ def _vram_peak() -> dict[str, float]:
 
 RUN_ARTIFACTS = (
     "results.json",
+    "clinical_training.json",
     "train_history.csv",
     "val_history.csv",
     "val_predictions_best.json",
     "val_predictions_best.csv",
     "val_predictions",
     "best_adapter",
+    "clinical_adapter",
     "adapters",
     "test",
 )
@@ -169,7 +284,7 @@ def archive_results(
         suffix += 1
     destination.mkdir(parents=True)
     for name in artifacts:
-        if name == "best_adapter" and not include_adapter:
+        if name in ("best_adapter", "clinical_adapter") and not include_adapter:
             continue
         source = results / name
         if source.is_dir():
@@ -239,7 +354,7 @@ def run_experiment(
     script_path: str | Path,
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from transformers import Trainer, TrainingArguments
+    from transformers import Trainer
 
     from ..data import load_records
     from .callbacks import GenerativeEvalEarlyStop, LossLogger
@@ -278,7 +393,7 @@ def run_experiment(
     gpus = _require_gpu()
 
     if cfg.mlflow_enabled:
-        import mlflow  # noqa: F401
+        import mlflow
 
         print(
             f"  mlflow    : {cfg.mlflow_tracking_uri or 'default (env o 127.0.0.1:5000)'}"
@@ -293,18 +408,37 @@ def run_experiment(
     train_records = load_records(root, cfg.train_split, images_root=root)
     val_records = load_records(root, cfg.val_split, images_root=root)
     print(f"  train={len(train_records)}  val={len(val_records)}")
+    clinical_records, stage_two_records, training_stats = prepare_training_records(
+        train_records, cfg
+    )
+    write_json_atomic(
+        results / "clinical_training.json",
+        {
+            "experiment": cfg.experiment,
+            "training_strategy": cfg.training_strategy,
+            "seed": cfg.seed,
+            **training_stats,
+        },
+    )
+    print(
+        f"  strategia : {cfg.training_strategy}  "
+        f"stage2={len(stage_two_records)}  clinical={len(clinical_records)}"
+    )
 
     model, processor = load_model_and_processor(cfg, project_root)
     collator = QwenVLCollator(processor, cfg.max_seq_length)
 
-    probe = collator(train_records[:2])
+    probe_records = [*clinical_records[:1], *stage_two_records[:1]]
+    probe = collator(probe_records)
     n_loss_tokens = int((probe["labels"] != -100).sum())
     if n_loss_tokens == 0:
         raise RuntimeError(
             "Nessun token di loss: il marker dell'assistant non e' stato trovato."
         )
     print(f"  token di loss nel probe: {n_loss_tokens}")
-    length_stats = sequence_length_probe(processor, train_records, cfg.max_seq_length)
+    length_stats = sequence_length_probe(
+        processor, stage_two_records, cfg.max_seq_length
+    )
 
     from ..tracking import (
         dvc_dataset_hash,
@@ -333,6 +467,8 @@ def run_experiment(
                 "n_val": len(val_records),
             },
             "config": cfg.as_dict(),
+            "training_strategy": training_stats,
+            "stages": {"clinical": None, "report_generation": None},
             "environment": {
                 "gpus": gpus,
                 "python": platform.python_version(),
@@ -388,16 +524,15 @@ def run_experiment(
                 "dataset_code": cfg.dataset_code,
                 "views": cfg.views,
                 "target": cfg.target,
+                "training_strategy": cfg.training_strategy,
+                "clinical_pretrain_epochs": cfg.clinical_pretrain_epochs,
+                "clinical_rehearsal_ratio": cfg.clinical_rehearsal_ratio,
                 "gpu": "; ".join(gpus),
                 "python": platform.python_version(),
             },
         )
 
-    steps_per_epoch = max(
-        1,
-        len(train_records)
-        // (cfg.per_device_train_batch_size * cfg.gradient_accumulation_steps),
-    )
+    steps_per_epoch = _steps_per_epoch(len(stage_two_records), cfg)
     dash = LiveDashboard(
         title=f"{cfg.experiment}  ({cfg.base_model})",
         total_steps=steps_per_epoch * cfg.max_epochs,
@@ -416,61 +551,51 @@ def run_experiment(
             )
             writer.flush()
 
-        stopper = GenerativeEvalEarlyStop(
-            cfg,
-            dash,
-            processor,
-            collator,
-            val_records,
-            results,
-            project_root,
-            writer,
-            mlflow_mod,
-        )
-        args = TrainingArguments(
-            output_dir=str(results / "checkpoints"),
-            num_train_epochs=cfg.max_epochs,
-            per_device_train_batch_size=cfg.per_device_train_batch_size,
-            gradient_accumulation_steps=cfg.gradient_accumulation_steps,
-            learning_rate=cfg.learning_rate,
-            warmup_ratio=cfg.warmup_ratio,
-            weight_decay=cfg.weight_decay,
-            lr_scheduler_type=cfg.lr_scheduler_type,
-            optim=cfg.optim,
-            bf16=True,
-            gradient_checkpointing=True,
-            gradient_checkpointing_kwargs={"use_reentrant": False},
-            logging_steps=cfg.logging_steps,
-            eval_strategy="no",
-            save_strategy="no",
-            report_to=[],
-            remove_unused_columns=False,
-            dataloader_num_workers=cfg.dataloader_num_workers,
-            dataloader_persistent_workers=cfg.dataloader_persistent_workers,
-            seed=cfg.seed,
-            full_determinism=cfg.full_determinism,
-        )
-        trainer = Trainer(
-            model=model,
-            args=args,
-            train_dataset=train_records,
-            data_collator=collator,
-            callbacks=[LossLogger(dash, mlflow_mod), stopper],
-            **build_optimizer(model, cfg),
-        )
-
-        dash.status = "training in corso…"
         t0 = time.time()
         import torch
 
         torch.cuda.reset_peak_memory_stats()
+        stopper: Any = None
         try:
+            if clinical_records:
+                run_clinical_pretraining(
+                    model,
+                    collator,
+                    clinical_records,
+                    cfg,
+                    results,
+                    writer,
+                    mlflow_mod,
+                )
+                torch.cuda.empty_cache()
+            stopper = GenerativeEvalEarlyStop(
+                cfg,
+                dash,
+                processor,
+                collator,
+                val_records,
+                results,
+                project_root,
+                writer,
+                mlflow_mod,
+            )
+            trainer = Trainer(
+                model=model,
+                args=_training_arguments(cfg, results / "checkpoints", cfg.max_epochs),
+                train_dataset=stage_two_records,
+                data_collator=collator,
+                callbacks=[LossLogger(dash, mlflow_mod), stopper],
+                **build_optimizer(model, cfg),
+            )
+            dash.status = "report generation training in corso…"
             train_result = trainer.train()
         except BaseException:
             writer.set(status="failed")
             writer.set_in("environment", **_vram_peak())
-            writer.set_curves(dash.train_rows, stopper.history)
-            writer.set_best(stopper.best_payload())
+            history = stopper.history if stopper is not None else []
+            best_payload = stopper.best_payload() if stopper is not None else None
+            writer.set_curves(dash.train_rows, history)
+            writer.set_best(best_payload)
             writer.set_in(
                 "timing", finished_at=now_iso(), wall_clock_s=round(time.time() - t0, 1)
             )
@@ -479,7 +604,7 @@ def run_experiment(
                 archive_results(results, "failed", cfg.archive_adapter)
             raise
         dash.stop()
-        dash.status = "training terminato"
+        dash.status = "report generation training terminato"
         dash.render()
 
         early_stopped = stopper.since_improved >= cfg.early_stopping_patience
@@ -494,6 +619,20 @@ def run_experiment(
                 if dash.train_rows
                 else 0.0
             ),
+        )
+        writer.set_in(
+            "stages",
+            report_generation={
+                "status": "early_stopped" if early_stopped else "completed",
+                "records": len(stage_two_records),
+                "epochs_completed": (
+                    round(float(dash.train_rows[-1]["epoch"]), 3)
+                    if dash.train_rows
+                    else 0.0
+                ),
+                "runtime_s": train_result.metrics.get("train_runtime"),
+                "evaluations": len(stopper.history),
+            },
         )
         writer.set_in(
             "timing",
@@ -532,6 +671,7 @@ def run_experiment(
                     mlflow_mod.log_metric(f"operational.{key}", float(value))
             for name in (
                 "results.json",
+                "clinical_training.json",
                 "train_history.csv",
                 "val_history.csv",
                 "val_predictions_best.csv",
@@ -543,6 +683,9 @@ def run_experiment(
 
             log_artifact_if_exists(
                 results / "best_adapter", "best_adapter", allow_dir=True
+            )
+            log_artifact_if_exists(
+                results / "clinical_adapter", "clinical_adapter", allow_dir=True
             )
 
     best = summary.get("best")
@@ -565,7 +708,7 @@ def run_experiment(
     if archived is not None:
         print(f"archiviata copia in   : {archived.relative_to(project_root)}")
     print("\nvalutazione sul test set (processo a parte):")
-    print(f"  python training/evaluate_test.py --experiment {cfg.experiment}")
+    print(f"  python training/evaluate_test.py --results {cfg.results_dir}")
     return summary
 
 

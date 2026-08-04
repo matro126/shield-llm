@@ -13,8 +13,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from shield.training.config import (  # noqa: E402
     TRAINING_MODES,
+    Config,
     Identity,
     available_metric_keys,
+    build_config,
     build_entrypoint_config,
     resolve_metric_selection,
 )
@@ -36,10 +38,31 @@ def discover(training_root: Path) -> dict[str, Identity]:
     }
 
 
+def load_saved_run(
+    path: Path, root: Path = ROOT
+) -> tuple[Identity, Config, Path]:
+    results = path.resolve()
+    if results.is_file():
+        results = results.parent
+    if results.name == "val_predictions":
+        results = results.parent
+    payload_path = results / "results.json"
+    if not payload_path.is_file():
+        raise ValueError(f"results.json assente in {results}")
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    saved = payload.get("config")
+    if not isinstance(saved, dict):
+        raise ValueError(f"config assente in {payload_path}")
+    identity = Identity.from_path(results)
+    cfg = build_config(identity, root, saved)
+    return identity, cfg, results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--experiment", help="nome dell'esperimento, es. it_2B_qlora_FL-FI")
+    parser.add_argument("--results", type=Path, help="cartella results di una run")
     parser.add_argument("--training-root", type=Path, default=ROOT / "training")
     parser.add_argument("--split", default="test", choices=("test", "val", "train"))
     parser.add_argument("--adapter", type=Path,
@@ -90,20 +113,28 @@ def main(argv: list[str] | None = None) -> int:
                   f"{('si' if evaluated else 'no'):<14}{best}")
         return 0
 
-    if not args.experiment:
-        parser.error("indica --experiment NOME (oppure --list per vederli)")
-    if args.experiment not in experiments:
-        print(f"Esperimento sconosciuto: {args.experiment}", file=sys.stderr)
-        print(f"disponibili: {', '.join(sorted(experiments))}", file=sys.stderr)
-        return 1
-
-    identity = experiments[args.experiment]
-    cfg = build_entrypoint_config(identity, ROOT)
+    if args.results:
+        try:
+            identity, cfg, results = load_saved_run(args.results, ROOT)
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    else:
+        if not args.experiment:
+            parser.error(
+                "indica --experiment NOME, --results CARTELLA oppure --list"
+            )
+        if args.experiment not in experiments:
+            print(f"Esperimento sconosciuto: {args.experiment}", file=sys.stderr)
+            print(f"disponibili: {', '.join(sorted(experiments))}", file=sys.stderr)
+            return 1
+        identity = experiments[args.experiment]
+        cfg = build_entrypoint_config(identity, ROOT)
+        results = ROOT / cfg.results_dir
     metric_names, metric_names_csv = resolve_metric_selection(
         args.metrics,
         cfg.test_metrics,
     )
-    results = ROOT / cfg.results_dir
     adapter = args.adapter or (results / "best_adapter")
     if not adapter.is_dir():
         print(f"Nessun adapter da valutare in {adapter}", file=sys.stderr)

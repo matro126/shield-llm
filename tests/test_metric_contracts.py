@@ -43,7 +43,7 @@ class MetricConfigurationTests(unittest.TestCase):
                 resolved_config(identity)
             except ValueError as exc:
                 failures.append(f"{identity.name}: {exc}")
-        self.assertEqual(40, len(identities))
+        self.assertEqual(50, len(identities))
         self.assertEqual([], failures)
 
     def test_italian_defaults_are_language_safe(self) -> None:
@@ -62,16 +62,15 @@ class MetricConfigurationTests(unittest.TestCase):
 
     def test_english_entrypoints_opt_in_to_chexbert(self) -> None:
         identities = active_identities("en")
-        self.assertEqual(4, len(identities))
+        self.assertEqual(14, len(identities))
         for identity in identities:
             cfg = resolved_config(identity)
             self.assertIn("chexbert", cfg.test_metrics, identity.name)
             if identity.mode != BASELINE_MODE:
                 self.assertIn("chexbert", cfg.eval_metrics, identity.name)
-                self.assertEqual(
-                    "findings.chexbert_f1_micro_top5",
-                    cfg.monitor_metric,
-                    identity.name,
+                self.assertTrue(
+                    cfg.monitor_metric.startswith("findings.chexbert_f1_"),
+                    f"{identity.name}: {cfg.monitor_metric}",
                 )
 
     def test_translated_italian_entrypoint_uses_chexbert_in_both_phases(self) -> None:

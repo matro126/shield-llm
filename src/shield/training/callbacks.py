@@ -19,9 +19,15 @@ from .results import (
 
 
 class LossLogger(TrainerCallback):
-    def __init__(self, dashboard: Any, mlflow: Any | None = None):
+    def __init__(
+        self,
+        dashboard: Any,
+        mlflow: Any | None = None,
+        prefix: str = "train",
+    ):
         self.dash = dashboard
         self.mlflow = mlflow
+        self.prefix = prefix
 
     def on_train_begin(self, args, state, control, **kwargs):
         self.dash.start()
@@ -35,7 +41,9 @@ class LossLogger(TrainerCallback):
             for key in ("loss", "learning_rate", "grad_norm"):
                 if key in logs and isinstance(logs[key], (int, float)):
                     self.mlflow.log_metric(
-                        f"train.{key}", float(logs[key]), step=state.global_step
+                        f"{self.prefix}.{key}",
+                        float(logs[key]),
+                        step=state.global_step,
                     )
         return control
 

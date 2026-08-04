@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import math
 import re
 import tomllib
 from collections.abc import Sequence
@@ -152,6 +153,14 @@ class Config:
     logging_steps: int = 5
     seed: int = 42
 
+    training_strategy: str = "standard"
+    clinical_pretrain_epochs: int = 0
+    clinical_rehearsal_ratio: float = 0.0
+    healthy_ratio: float = 0.3
+    pathological_ratio: float = 0.6
+    other_ratio: float = 0.1
+    rare_weight_cap: float = 4.0
+
     dataloader_num_workers: int = 8
     dataloader_persistent_workers: bool = True
     full_determinism: bool = False
@@ -237,6 +246,48 @@ def available_metric_keys(
 
 
 def validate(cfg: Config) -> None:
+    strategies = ("standard", "balanced", "clinical")
+    if cfg.training_strategy not in strategies:
+        raise ValueError(
+            f"training_strategy deve essere uno di {strategies}, non "
+            f"{cfg.training_strategy!r}"
+        )
+    if cfg.clinical_pretrain_epochs < 0:
+        raise ValueError("clinical_pretrain_epochs deve essere >= 0")
+    if not 0.0 <= cfg.clinical_rehearsal_ratio < 1.0:
+        raise ValueError(
+            "clinical_rehearsal_ratio deve essere compreso fra 0 incluso e 1 escluso"
+        )
+    if cfg.training_strategy in ("standard", "balanced"):
+        if cfg.clinical_pretrain_epochs != 0:
+            raise ValueError(
+                "clinical_pretrain_epochs deve essere 0 per strategie non clinical"
+            )
+        if cfg.clinical_rehearsal_ratio != 0.0:
+            raise ValueError(
+                "clinical_rehearsal_ratio deve essere 0 per strategie non clinical"
+            )
+    if cfg.training_strategy == "clinical":
+        if cfg.clinical_pretrain_epochs < 1:
+            raise ValueError(
+                "clinical_pretrain_epochs deve essere positivo per clinical"
+            )
+        if cfg.clinical_rehearsal_ratio <= 0.0:
+            raise ValueError(
+                "clinical_rehearsal_ratio deve essere positivo per clinical"
+            )
+    report_ratios = {
+        "healthy_ratio": cfg.healthy_ratio,
+        "pathological_ratio": cfg.pathological_ratio,
+        "other_ratio": cfg.other_ratio,
+    }
+    for name, value in report_ratios.items():
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"{name} deve essere compreso fra 0 e 1")
+    if not math.isclose(sum(report_ratios.values()), 1.0, abs_tol=1e-9):
+        raise ValueError("La sum dei rapporti healthy/pathological/other deve essere 1")
+    if cfg.rare_weight_cap <= 0:
+        raise ValueError("rare_weight_cap deve essere positivo")
     unknown = [m for m in cfg.eval_metrics if m not in METRIC_KEYS]
     if unknown:
         raise ValueError(
