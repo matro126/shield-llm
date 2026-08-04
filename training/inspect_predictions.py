@@ -26,10 +26,24 @@ def resolve_results(path: Path) -> Path:
     candidate = path.resolve()
     if candidate.is_file():
         candidate = candidate.parent
+    if candidate.is_dir() and candidate.name == "val_predictions":
+        return candidate.parent
     for option in (candidate, candidate / "results"):
         if (option / "val_predictions").is_dir():
             return option
     raise SystemExit(f"Nessuna cartella val_predictions sotto {path}")
+
+
+def mlflow_provenance(results: Path) -> dict[str, str | None]:
+    path = results / "results.json"
+    if not path.is_file():
+        return {"run_id": None, "tracking_uri": None}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mlflow = payload.get("provenance", {}).get("mlflow") or {}
+    return {
+        "run_id": mlflow.get("run_id"),
+        "tracking_uri": mlflow.get("tracking_uri"),
+    }
 
 
 def load_steps(results: Path) -> list[dict[str, Any]]:
@@ -66,7 +80,6 @@ def _diverse_sample(
     count: int,
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """Select cases while spreading coverage across diagnostic labels."""
     if count <= 0 or not candidates:
         return []
     remaining = list(candidates)
@@ -232,7 +245,6 @@ def sample_text(
 
 
 def section_text(sample: dict[str, Any], key: str) -> str:
-    """Backward-compatible findings-only accessor."""
     return sample_text(sample, key, target="findings", section="findings")
 
 
@@ -380,10 +392,10 @@ def export_review_csv(
     with destination.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=REVIEW_FIELDS)
         writer.writeheader()
-        for payload in steps:
-            by_id = {sample["id"]: sample for sample in payload["samples"]}
-            target = payload.get("target", "findings")
-            for uid, group in ids:
+        for uid, group in ids:
+            for payload in steps:
+                by_id = {sample["id"]: sample for sample in payload["samples"]}
+                target = payload.get("target", "findings")
                 sample = by_id.get(uid)
                 if sample is None:
                     continue
@@ -447,6 +459,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     results = resolve_results(args.path)
+    provenance = mlflow_provenance(results)
+    print(f"mlflow run  : {provenance['run_id'] or 'non disponibile'}")
+    if provenance["tracking_uri"]:
+        print(f"tracking URI: {provenance['tracking_uri']}")
     _resolve_backend()
 
     if args.build_probe:

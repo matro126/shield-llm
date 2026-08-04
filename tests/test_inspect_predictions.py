@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,56 @@ def sample(uid: str, labels: list[str]) -> dict:
             "impression": f"prediction impression {uid}",
         },
     }
+
+
+class PathResolutionTests(unittest.TestCase):
+    def test_resolve_results_accepts_val_predictions_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory) / "results"
+            predictions = results / "val_predictions"
+            predictions.mkdir(parents=True)
+
+            resolved = inspect_predictions.resolve_results(predictions)
+
+        self.assertEqual(results.resolve(), resolved)
+
+
+class MlflowProvenanceTests(unittest.TestCase):
+    def test_mlflow_provenance_reads_results_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory)
+            (results / "results.json").write_text(
+                json.dumps(
+                    {
+                        "provenance": {
+                            "mlflow": {
+                                "run_id": "abc123",
+                                "tracking_uri": "http://127.0.0.1:5000",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            provenance = inspect_predictions.mlflow_provenance(results)
+
+        self.assertEqual(
+            {
+                "run_id": "abc123",
+                "tracking_uri": "http://127.0.0.1:5000",
+            },
+            provenance,
+        )
+
+    def test_mlflow_provenance_is_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provenance = inspect_predictions.mlflow_provenance(Path(directory))
+
+        self.assertEqual(
+            {"run_id": None, "tracking_uri": None},
+            provenance,
+        )
 
 
 class ProbeSelectionTests(unittest.TestCase):
@@ -142,6 +193,15 @@ class ManualReviewTests(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
 
         self.assertEqual(4, len(rows))
+        self.assertEqual(
+            [
+                ("healthy-1", "1.0"),
+                ("healthy-1", "2.0"),
+                ("sick-1", "1.0"),
+                ("sick-1", "2.0"),
+            ],
+            [(row["case_id"], row["epoch"]) for row in rows],
+        )
         self.assertEqual(
             {
                 "false_positive_finding",

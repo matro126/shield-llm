@@ -28,7 +28,7 @@ OVERRIDES: dict = {
     "tune_mm_mlp": True,
     "vision_lr": 1e-05,
     "merger_lr": 1e-05,
-    "per_device_train_batch_size": 4,
+    "per_device_train_batch_size": 8,
     "gradient_accumulation_steps": 4,
     "optim": "adamw_torch",
     "max_seq_length": 4096,
