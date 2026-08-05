@@ -13,6 +13,15 @@ from .clinical import CLINICAL_LABELS, NO_FINDING
 from .results import write_json_atomic
 
 CLINICAL_EVAL_LABELS = (*CLINICAL_LABELS, NO_FINDING)
+CLINICAL_AGGREGATE_METRICS = (
+    "accuracy_exact",
+    "precision_macro",
+    "recall_macro",
+    "f1_macro",
+    "precision_micro",
+    "recall_micro",
+    "f1_micro",
+)
 
 
 def parse_clinical_labels(text: str) -> list[str]:
@@ -67,6 +76,15 @@ def clinical_classification_metrics(
         result[f"cls_{key}_f1"] = float(f1[index])
         result[f"cls_{key}_support"] = float(support[index])
     return result
+
+
+def clinical_mlflow_metrics(metrics: dict[str, float]) -> dict[str, float]:
+    return {
+        key: value
+        for key, value in metrics.items()
+        if key in CLINICAL_AGGREGATE_METRICS
+        or key.startswith("cls_") and key.endswith("_f1")
+    }
 
 
 def clinical_validation_payload(
@@ -204,7 +222,7 @@ class ClinicalEvalCallback(TrainerCallback):
         folder = self.results / "clinical_val_predictions"
         write_json_atomic(folder / f"step{step:06d}.json", payload)
         if self.mlflow is not None:
-            for key, value in metrics.items():
+            for key, value in clinical_mlflow_metrics(metrics).items():
                 self.mlflow.log_metric(f"clinical.val.{key}", value, step=step)
         if self.best is None or metrics["f1_macro"] > self.best["value"]:
             self.best = {

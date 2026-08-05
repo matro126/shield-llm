@@ -154,8 +154,12 @@ class Config:
     seed: int = 42
 
     training_strategy: str = "standard"
+    training_phase: str = "full"
     clinical_pretrain_epochs: int = 0
     clinical_rehearsal_ratio: float = 0.0
+    clinical_adapter_path: str = ""
+    clinical_balance: bool = False
+    clinical_healthy_ratio: float = 0.3
     healthy_ratio: float = 0.3
     pathological_ratio: float = 0.6
     other_ratio: float = 0.1
@@ -247,11 +251,31 @@ def available_metric_keys(
 
 def validate(cfg: Config) -> None:
     strategies = ("standard", "balanced", "clinical")
+    phases = ("full", "clinical_only", "report_only")
     if cfg.training_strategy not in strategies:
         raise ValueError(
             f"training_strategy deve essere uno di {strategies}, non "
             f"{cfg.training_strategy!r}"
         )
+    if cfg.training_phase not in phases:
+        raise ValueError(
+            f"training_phase deve essere uno di {phases}, non {cfg.training_phase!r}"
+        )
+    if cfg.training_strategy != "clinical" and cfg.training_phase != "full":
+        raise ValueError("training_phase separato e' ammesso soltanto per clinical")
+    if cfg.clinical_balance and (
+        cfg.training_strategy != "clinical" or cfg.training_phase == "report_only"
+    ):
+        raise ValueError(
+            "clinical_balance richiede uno stadio clinico eseguito nella run"
+        )
+    if cfg.training_phase == "report_only":
+        if not cfg.clinical_adapter_path:
+            raise ValueError("clinical_adapter_path e' obbligatorio per report_only")
+        if cfg.clinical_pretrain_epochs != 0:
+            raise ValueError("clinical_pretrain_epochs deve essere 0 per report_only")
+    elif cfg.clinical_adapter_path:
+        raise ValueError("clinical_adapter_path e' ammesso soltanto per report_only")
     if cfg.clinical_pretrain_epochs < 0:
         raise ValueError("clinical_pretrain_epochs deve essere >= 0")
     if not 0.0 <= cfg.clinical_rehearsal_ratio < 1.0:
@@ -268,7 +292,7 @@ def validate(cfg: Config) -> None:
                 "clinical_rehearsal_ratio deve essere 0 per strategie non clinical"
             )
     if cfg.training_strategy == "clinical":
-        if cfg.clinical_pretrain_epochs < 1:
+        if cfg.training_phase != "report_only" and cfg.clinical_pretrain_epochs < 1:
             raise ValueError(
                 "clinical_pretrain_epochs deve essere positivo per clinical"
             )
@@ -276,6 +300,8 @@ def validate(cfg: Config) -> None:
             raise ValueError(
                 "clinical_rehearsal_ratio deve essere positivo per clinical"
             )
+    if not 0.0 < cfg.clinical_healthy_ratio < 1.0:
+        raise ValueError("clinical_healthy_ratio deve essere compreso fra 0 e 1 esclusi")
     report_ratios = {
         "healthy_ratio": cfg.healthy_ratio,
         "pathological_ratio": cfg.pathological_ratio,

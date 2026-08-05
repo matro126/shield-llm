@@ -9,17 +9,28 @@ import pytest
 
 from shield.training.config import Config, Identity, build_config, validate
 from shield.training.callbacks import LossLogger
-from shield.training.runner import RUN_ARTIFACTS, prepare_training_records
+from shield.training.runner import (
+    RUN_ARTIFACTS,
+    prepare_training_records,
+    validate_resume_adapter_path,
+)
 from training.evaluate_test import load_saved_run
 from shield.training.clinical import (
+    build_balanced_clinical_records,
     build_clinical_records,
     build_stage_two_records,
     validate_clinical_source,
 )
 from shield.training.clinical_evaluation import (
+    clinical_mlflow_metrics,
     clinical_validation_payload,
     clinical_classification_metrics,
     parse_clinical_labels,
+)
+from shield.training.model import (
+    adapter_specific_missing_keys,
+    load_training_adapter,
+    validate_training_adapter_config,
 )
 
 
@@ -202,6 +213,60 @@ def test_clinical_stage_two_is_balanced_and_has_rehearsal():
     ]["Lung Opacity"]
 
 
+def test_balanced_clinical_records_are_deterministic_and_reduce_no_finding():
+    reports = stage_records()
+    clinical, _ = build_clinical_records(reports, expected_images=2)
+    cfg = SimpleNamespace(
+        seed=42,
+        clinical_healthy_ratio=0.3,
+        rare_weight_cap=4.0,
+    )
+    selected, stats = build_balanced_clinical_records(clinical, cfg)
+    repeated, repeated_stats = build_balanced_clinical_records(clinical, cfg)
+    assert [row["id"] for row in selected] == [row["id"] for row in repeated]
+    assert stats == repeated_stats
+    assert len(selected) == len(clinical)
+    assert stats["sampled_strata_counts"] == {
+        "healthy": 7,
+        "pathological": 15,
+    }
+    assert stats["source_strata_counts"] == {
+        "healthy": 12,
+        "pathological": 10,
+    }
+    assert stats["pathology_weights"]["Pneumothorax"] > stats[
+        "pathology_weights"
+    ]["Lung Opacity"]
+    assert stats["sampled_label_frequencies"]["No Finding"] == 7
+
+
+def test_clinical_mlflow_metrics_keep_aggregates_and_class_f1_only():
+    metrics = {
+        "accuracy_exact": 0.5,
+        "precision_macro": 0.4,
+        "recall_macro": 0.3,
+        "f1_macro": 0.35,
+        "precision_micro": 0.6,
+        "recall_micro": 0.5,
+        "f1_micro": 0.55,
+        "cls_Pneumothorax_precision": 0.2,
+        "cls_Pneumothorax_recall": 0.1,
+        "cls_Pneumothorax_f1": 0.15,
+        "cls_Pneumothorax_support": 3.0,
+    }
+    selected = clinical_mlflow_metrics(metrics)
+    assert selected == {
+        "accuracy_exact": 0.5,
+        "precision_macro": 0.4,
+        "recall_macro": 0.3,
+        "f1_macro": 0.35,
+        "precision_micro": 0.6,
+        "recall_micro": 0.5,
+        "f1_micro": 0.55,
+        "cls_Pneumothorax_f1": 0.15,
+    }
+
+
 def test_balanced_stage_two_contains_only_reports():
     reports = stage_records()
     cfg = SimpleNamespace(
@@ -258,6 +323,29 @@ def test_training_strategy_config_accepts_consistent_settings(cfg):
 
 
 @pytest.mark.parametrize(
+    "cfg",
+    [
+        config(
+            training_strategy="clinical",
+            training_phase="clinical_only",
+            clinical_pretrain_epochs=3,
+            clinical_rehearsal_ratio=0.1,
+            clinical_balance=True,
+        ),
+        config(
+            training_strategy="clinical",
+            training_phase="report_only",
+            clinical_pretrain_epochs=0,
+            clinical_rehearsal_ratio=0.1,
+            clinical_adapter_path="results_probe/clinical_adapter",
+        ),
+    ],
+)
+def test_training_phase_config_accepts_split_clinical_runs(cfg):
+    validate(cfg)
+
+
+@pytest.mark.parametrize(
     ("overrides", "message"),
     [
         ({"training_strategy": "unknown"}, "training_strategy"),
@@ -296,6 +384,36 @@ def test_training_strategy_config_accepts_consistent_settings(cfg):
         ({"healthy_ratio": 0.4}, "sum"),
         ({"healthy_ratio": -0.1, "pathological_ratio": 1.0}, "healthy_ratio"),
         ({"rare_weight_cap": 0.0}, "rare_weight_cap"),
+        ({"training_phase": "unknown"}, "training_phase"),
+        (
+            {
+                "training_strategy": "clinical",
+                "training_phase": "report_only",
+                "clinical_pretrain_epochs": 0,
+                "clinical_rehearsal_ratio": 0.1,
+            },
+            "clinical_adapter_path",
+        ),
+        (
+            {
+                "training_strategy": "balanced",
+                "training_phase": "clinical_only",
+            },
+            "training_phase",
+        ),
+        ({"clinical_healthy_ratio": 1.0}, "clinical_healthy_ratio"),
+        ({"training_strategy": "balanced", "clinical_balance": True}, "clinical_balance"),
+        (
+            {
+                "training_strategy": "clinical",
+                "training_phase": "report_only",
+                "clinical_pretrain_epochs": 0,
+                "clinical_rehearsal_ratio": 0.1,
+                "clinical_adapter_path": "adapter",
+                "clinical_balance": True,
+            },
+            "clinical_balance",
+        ),
     ],
 )
 def test_training_strategy_config_rejects_inconsistent_settings(overrides, message):
@@ -352,6 +470,28 @@ def test_prepare_training_records_builds_clinical_and_stage_two_sets():
         "clinical_classification": 3,
         "report_generation": 27,
     }
+
+
+def test_prepare_training_records_balances_only_clinical_stage():
+    reports = stage_records()
+    cfg = config(
+        training_strategy="clinical",
+        clinical_pretrain_epochs=3,
+        clinical_rehearsal_ratio=0.1,
+        clinical_balance=True,
+        clinical_healthy_ratio=0.3,
+    )
+    clinical, stage_two, stats = prepare_training_records(reports, cfg)
+    assert len(clinical) == 22
+    assert stats["clinical"]["sampling"]["sampled_strata_counts"] == {
+        "healthy": 7,
+        "pathological": 15,
+    }
+    assert stats["stage_two"]["task_counts"] == {
+        "clinical_classification": 3,
+        "report_generation": 27,
+    }
+    assert len(stage_two) == len(reports)
 
 
 def test_prepare_training_records_leaves_standard_training_untouched():
@@ -453,6 +593,85 @@ def test_8b_balanced_and_clinical_entrypoints_are_controlled_comparison():
     assert balanced.monitor_metric == "findings.chexbert_f1_macro"
     assert balanced.max_new_tokens == 192
     assert balanced.seed == 42
+
+
+@pytest.mark.parametrize("size", ["2B", "8B"])
+def test_clinical_probe_and_resume_entrypoints_use_batch_16(size):
+    root = Path(__file__).resolve().parents[1]
+    folder = root / (
+        f"training/en/Qwen-3-VL-{size}-Instruct/lora/iu_xray_r2gen_FL-F"
+    )
+    probe_script = folder / f"en_{size}_lora_FL-F_clinical_probe.py"
+    resume_script = folder / f"en_{size}_lora_FL-F_clinical_resume.py"
+    probe_ns = runpy.run_path(str(probe_script), run_name=f"probe_{size}")
+    resume_ns = runpy.run_path(str(resume_script), run_name=f"resume_{size}")
+    probe = build_config(Identity.from_path(probe_script), root, probe_ns["OVERRIDES"])
+    resume = build_config(
+        Identity.from_path(resume_script), root, resume_ns["OVERRIDES"]
+    )
+    assert probe.training_phase == "clinical_only"
+    assert probe.clinical_balance is True
+    assert probe.clinical_pretrain_epochs == 3
+    assert resume.training_phase == "report_only"
+    assert resume.clinical_pretrain_epochs == 0
+    assert resume.clinical_adapter_path == f"{probe.results_dir}/clinical_adapter"
+    assert probe.per_device_train_batch_size == 8
+    assert probe.gradient_accumulation_steps == 2
+    assert resume.per_device_train_batch_size == 8
+    assert resume.gradient_accumulation_steps == 2
+    assert probe.per_device_train_batch_size * probe.gradient_accumulation_steps == 16
+    assert resume.per_device_train_batch_size * resume.gradient_accumulation_steps == 16
+
+
+def test_load_training_adapter_rejects_missing_adapter(tmp_path):
+    with pytest.raises(FileNotFoundError, match="Adapter clinico assente"):
+        load_training_adapter(SimpleNamespace(), tmp_path / "missing")
+
+
+def test_resume_adapter_must_be_outside_live_results(tmp_path):
+    results = tmp_path / "results"
+    adapter = results / "clinical_adapter"
+    with pytest.raises(ValueError, match="fuori da results_dir"):
+        validate_resume_adapter_path(results, adapter)
+    external = tmp_path / "probe" / "clinical_adapter"
+    assert validate_resume_adapter_path(results, external) == external.resolve()
+
+
+def test_training_adapter_config_requires_matching_lora_and_base_model():
+    current = SimpleNamespace(
+        peft_config={
+            "default": SimpleNamespace(
+                r=32,
+                lora_alpha=64,
+                target_modules={"q_proj", "v_proj"},
+                base_model_name_or_path="Qwen/Qwen3-VL-2B-Instruct",
+            )
+        },
+        active_adapter="default",
+    )
+    saved = {
+        "r": 32,
+        "lora_alpha": 64,
+        "target_modules": ["q_proj", "v_proj"],
+        "base_model_name_or_path": "Qwen/Qwen3-VL-2B-Instruct",
+    }
+    validate_training_adapter_config(current, saved)
+    with pytest.raises(ValueError, match="r"):
+        validate_training_adapter_config(current, saved | {"r": 16})
+    with pytest.raises(ValueError, match="base_model_name_or_path"):
+        validate_training_adapter_config(
+            current,
+            saved | {"base_model_name_or_path": "Qwen/Qwen3-VL-8B-Instruct"},
+        )
+
+
+def test_adapter_specific_missing_keys_exclude_base_model_parameters():
+    missing = [
+        "base_model.model.language_model.layers.0.self_attn.q_proj.weight",
+        "base_model.model.language_model.layers.0.self_attn.q_proj.lora_A.default.weight",
+        "base_model.model.visual.merger.modules_to_save.default.weight",
+    ]
+    assert adapter_specific_missing_keys(missing) == missing[1:]
 
 
 def test_load_saved_run_uses_variant_configuration_and_result_root(tmp_path):

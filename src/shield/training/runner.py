@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, Identity, build_config
-from .clinical import build_clinical_records, build_stage_two_records
+from .clinical import (
+    build_balanced_clinical_records,
+    build_clinical_records,
+    build_stage_two_records,
+)
 from .dashboard import LiveDashboard, hms
 from .results import ResultsWriter, flatten_validation_row, now_iso, write_json_atomic
 
@@ -25,6 +29,17 @@ def find_project_root(start: Path | None = None) -> Path:
         if (candidate / "pyproject.toml").exists():
             return candidate
     return here
+
+
+def validate_resume_adapter_path(results: Path, adapter: Path) -> Path:
+    resolved_results = results.resolve()
+    resolved_adapter = adapter.resolve()
+    if resolved_adapter == resolved_results or resolved_results in resolved_adapter.parents:
+        raise ValueError(
+            "clinical_adapter_path deve essere fuori da results_dir per evitare "
+            "che l'archiviazione cancelli l'adapter sorgente"
+        )
+    return resolved_adapter
 
 
 def _seed_everything(seed: int) -> None:
@@ -61,11 +76,19 @@ def prepare_training_records(
     clinical_stats: dict[str, Any] | None = None
     if cfg.training_strategy == "clinical":
         expected_images = 2 if cfg.views == "frontal_lateral" else 1
-        clinical_records, clinical_stats = build_clinical_records(
+        clinical_source, clinical_stats = build_clinical_records(
             train_records, expected_images
         )
+        clinical_records = clinical_source
+        if cfg.clinical_balance:
+            clinical_records, sampling = build_balanced_clinical_records(
+                clinical_source, cfg
+            )
+            clinical_stats["sampling"] = sampling
+    else:
+        clinical_source = []
     stage_two, stage_two_stats = build_stage_two_records(
-        train_records, clinical_records, cfg
+        train_records, clinical_source, cfg
     )
     return clinical_records, stage_two, {
         "clinical": clinical_stats,
@@ -382,6 +405,7 @@ def run_experiment(
     from .model import (
         QwenVLCollator,
         load_model_and_processor,
+        load_training_adapter,
         lora_adapter_report,
         sequence_length_probe,
     )
@@ -392,6 +416,11 @@ def run_experiment(
     cfg: Config = build_config(identity, project_root, overrides)
 
     results = project_root / cfg.results_dir
+    resume_adapter: Path | None = None
+    if cfg.training_phase == "report_only":
+        resume_adapter = validate_resume_adapter_path(
+            results, project_root / cfg.clinical_adapter_path
+        )
     results.mkdir(parents=True, exist_ok=True)
 
     previous = _previous_status(results)
@@ -444,6 +473,7 @@ def run_experiment(
         {
             "experiment": cfg.experiment,
             "training_strategy": cfg.training_strategy,
+            "training_phase": cfg.training_phase,
             "seed": cfg.seed,
             **training_stats,
         },
@@ -464,9 +494,10 @@ def run_experiment(
             "Nessun token di loss: il marker dell'assistant non e' stato trovato."
         )
     print(f"  token di loss nel probe: {n_loss_tokens}")
-    length_stats = sequence_length_probe(
-        processor, stage_two_records, cfg.max_seq_length
+    length_records = (
+        clinical_records if cfg.training_phase == "clinical_only" else stage_two_records
     )
+    length_stats = sequence_length_probe(processor, length_records, cfg.max_seq_length)
 
     from ..tracking import (
         dvc_dataset_hash,
@@ -553,8 +584,11 @@ def run_experiment(
                 "views": cfg.views,
                 "target": cfg.target,
                 "training_strategy": cfg.training_strategy,
+                "training_phase": cfg.training_phase,
                 "clinical_pretrain_epochs": cfg.clinical_pretrain_epochs,
                 "clinical_rehearsal_ratio": cfg.clinical_rehearsal_ratio,
+                "clinical_balance": cfg.clinical_balance,
+                "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
                 "gpu": "; ".join(gpus),
                 "python": platform.python_version(),
             },
@@ -585,8 +619,22 @@ def run_experiment(
         torch.cuda.reset_peak_memory_stats()
         stopper: Any = None
         try:
-            if clinical_records:
-                run_clinical_pretraining(
+            clinical_summary: dict[str, Any] | None = None
+            if cfg.training_phase == "report_only":
+                if resume_adapter is None:
+                    raise RuntimeError("Adapter di ripresa non risolto")
+                adapter_provenance = load_training_adapter(model, resume_adapter)
+                writer.set_in("provenance", clinical_adapter=adapter_provenance)
+                writer.set_in(
+                    "stages",
+                    clinical={
+                        "status": "loaded",
+                        "adapter": adapter_provenance,
+                    },
+                )
+                writer.flush()
+            elif clinical_records:
+                clinical_summary = run_clinical_pretraining(
                     model,
                     processor,
                     collator,
@@ -598,6 +646,74 @@ def run_experiment(
                     mlflow_mod,
                 )
                 torch.cuda.empty_cache()
+            if cfg.training_phase == "clinical_only":
+                if clinical_summary is None:
+                    raise RuntimeError("clinical_only non ha eseguito il pretraining")
+                best_clinical = clinical_summary["validation"]["best"]
+                vram = _vram_peak()
+                duration = round(time.time() - t0, 1)
+                writer.set(status="completed")
+                writer.set_best(best_clinical)
+                writer.set(
+                    n_evaluations=len(clinical_summary["validation"]["history"]),
+                    early_stopped=False,
+                    epochs_completed=float(cfg.clinical_pretrain_epochs),
+                )
+                writer.set_in(
+                    "stages",
+                    report_generation={"status": "skipped", "reason": "clinical_only"},
+                )
+                writer.set_in(
+                    "timing",
+                    finished_at=now_iso(),
+                    wall_clock_s=duration,
+                    train_runtime_s=clinical_summary["trainer_runtime_s"],
+                )
+                writer.set_in("environment", **vram)
+                writer.flush()
+                summary = writer.payload
+                archived = (
+                    archive_results(results, "completed", cfg.archive_adapter)
+                    if cfg.archive_results
+                    else None
+                )
+                if cfg.mlflow_enabled and mlflow_mod is not None:
+                    mlflow_mod.set_tag("status", "completed")
+                    mlflow_mod.set_tag("training_phase", cfg.training_phase)
+                    for key, value in vram.items():
+                        if isinstance(value, (int, float)):
+                            mlflow_mod.log_metric(f"operational.{key}", float(value))
+                    for name in (
+                        "results.json",
+                        "clinical_training.json",
+                        "clinical_val_history.csv",
+                        "clinical_val_predictions_best.json",
+                    ):
+                        path = results / name
+                        if path.is_file():
+                            mlflow_mod.log_artifact(str(path), artifact_path="training")
+                    from ..tracking import log_artifact_if_exists
+
+                    log_artifact_if_exists(
+                        results / "clinical_adapter",
+                        "clinical_adapter",
+                        allow_dir=True,
+                    )
+                    log_artifact_if_exists(
+                        results / "clinical_val_predictions",
+                        "clinical_val_predictions",
+                        allow_dir=True,
+                    )
+                print("\n" + "=" * 78)
+                print(f"TEMPO TOTALE          : {hms(duration)}")
+                print(
+                    f"best clinical f1_macro: {best_clinical['value']:.4f}  "
+                    f"@ epoca {best_clinical['epoch']} / step {best_clinical['step']}"
+                )
+                print(f"risultati             : {results / 'results.json'}")
+                if archived is not None:
+                    print(f"archiviata copia in   : {archived.relative_to(project_root)}")
+                return summary
             stopper = GenerativeEvalEarlyStop(
                 cfg,
                 dash,
@@ -673,17 +789,16 @@ def run_experiment(
         vram = _vram_peak()
         writer.set_in("environment", **vram)
         writer.flush()
+        _dump_csv(results / "train_history.csv", dash.train_rows)
+        _dump_csv(
+            results / "val_history.csv",
+            [flatten_validation_row(row) for row in stopper.history],
+        )
         summary = writer.payload
         archived = (
             archive_results(results, summary["status"], cfg.archive_adapter)
             if cfg.archive_results
             else None
-        )
-
-        _dump_csv(results / "train_history.csv", dash.train_rows)
-        _dump_csv(
-            results / "val_history.csv",
-            [flatten_validation_row(row) for row in stopper.history],
         )
 
         if cfg.mlflow_enabled and mlflow_mod is not None:

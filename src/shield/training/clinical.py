@@ -135,6 +135,43 @@ def build_clinical_records(
     return clinical, stats
 
 
+def build_balanced_clinical_records(
+    records: Sequence[dict[str, Any]], cfg: Any
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    groups = {"healthy": [], "pathological": []}
+    for record in records:
+        stratum = _stratum(record)
+        if stratum not in groups:
+            raise ValueError("Il campione clinico contiene categorie non supervisionate")
+        groups[stratum].append(record)
+    counts = _allocated_counts(
+        len(records),
+        {
+            "healthy": cfg.clinical_healthy_ratio,
+            "pathological": 1.0 - cfg.clinical_healthy_ratio,
+        },
+    )
+    weights, weight_details = _label_weight_data(
+        groups["pathological"], cfg.rare_weight_cap
+    )
+    rng = random.Random(cfg.seed)
+    selected = _sample(rng, groups["healthy"], counts["healthy"])
+    selected.extend(
+        _sample(rng, groups["pathological"], counts["pathological"], weights)
+    )
+    rng.shuffle(selected)
+    frequencies = Counter(label for row in selected for label in _labels(row))
+    return selected, {
+        "seed": cfg.seed,
+        "effective_records": len(selected),
+        "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
+        "source_strata_counts": {name: len(rows) for name, rows in groups.items()},
+        "sampled_strata_counts": counts,
+        "sampled_label_frequencies": dict(sorted(frequencies.items())),
+        "pathology_weights": weight_details,
+    }
+
+
 def _stratum(record: dict[str, Any]) -> str:
     labels = _labels(record)
     if labels == [NO_FINDING]:

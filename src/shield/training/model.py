@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import re
 from pathlib import Path
@@ -171,6 +172,72 @@ def load_model_and_processor(
     )
     model.print_trainable_parameters()
     return model, processor
+
+
+def _adapter_config_value(value: Any) -> Any:
+    if isinstance(value, (set, list, tuple)):
+        return tuple(sorted(value))
+    return value
+
+
+def validate_training_adapter_config(model: Any, saved: dict[str, Any]) -> None:
+    active_name = getattr(model, "active_adapter", "default")
+    if not isinstance(active_name, str):
+        active_name = "default"
+    current = model.peft_config[active_name]
+    for key in ("r", "lora_alpha", "target_modules", "base_model_name_or_path"):
+        expected = _adapter_config_value(getattr(current, key, None))
+        actual = _adapter_config_value(saved.get(key))
+        if expected != actual:
+            raise ValueError(
+                f"Adapter clinico incompatibile per {key}: "
+                f"config corrente={expected!r}, adapter={actual!r}"
+            )
+
+
+def adapter_specific_missing_keys(keys: list[str]) -> list[str]:
+    return [
+        key
+        for key in keys
+        if "lora_" in key or "modules_to_save" in key
+    ]
+
+
+def load_training_adapter(model: Any, adapter: Path) -> dict[str, Any]:
+    resolved = adapter.resolve()
+    if not resolved.is_dir():
+        raise FileNotFoundError(f"Adapter clinico assente: {resolved}")
+    config_path = resolved / "adapter_config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Configurazione dell'adapter assente: {resolved}")
+    saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+    validate_training_adapter_config(model, saved_config)
+    safetensors_path = resolved / "adapter_model.safetensors"
+    binary_path = resolved / "adapter_model.bin"
+    if safetensors_path.is_file():
+        from safetensors.torch import load_file
+
+        state = load_file(str(safetensors_path), device="cpu")
+    elif binary_path.is_file():
+        import torch
+
+        state = torch.load(binary_path, map_location="cpu", weights_only=True)
+    else:
+        raise FileNotFoundError(f"Pesi dell'adapter clinico assenti: {resolved}")
+    from peft import set_peft_model_state_dict
+
+    loaded = set_peft_model_state_dict(model, state)
+    unexpected = list(getattr(loaded, "unexpected_keys", []))
+    if unexpected:
+        raise RuntimeError(f"Pesi adapter inattesi: {unexpected[:10]}")
+    missing = adapter_specific_missing_keys(
+        list(getattr(loaded, "missing_keys", []))
+    )
+    if missing:
+        raise RuntimeError(f"Pesi adapter mancanti: {missing[:10]}")
+    from ..tracking import sha256_manifest
+
+    return {"path": str(resolved), **sha256_manifest(resolved)}
 
 
 def _load_rgb_images(paths: list[str] | list[Path]) -> list[Any]:
