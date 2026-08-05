@@ -135,6 +135,33 @@ def build_clinical_records(
     return clinical, stats
 
 
+def shuffle_clinical_images(
+    records: Sequence[dict[str, Any]], seed: int
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    if len(records) < 2:
+        raise ValueError("Image shuffle requires at least two clinical records")
+    ids = [str(record.get("id")) for record in records]
+    if len(set(ids)) != len(ids):
+        raise ValueError("Image shuffle requires unique clinical record ids")
+    rng = random.Random(seed)
+    offset = rng.randrange(1, len(records))
+    sources = [records[(index + offset) % len(records)] for index in range(len(records))]
+    shuffled = []
+    mapping = {}
+    for record, source in zip(records, sources):
+        changed = deepcopy(record)
+        changed["images"] = deepcopy(source["images"])
+        content = changed["messages"][1]["content"]
+        image_items = [item for item in content if item.get("type") == "image"]
+        if len(image_items) != len(changed["images"]):
+            raise ValueError("Image shuffle found inconsistent multimodal content")
+        for item, path in zip(image_items, changed["images"]):
+            item["image"] = path
+        shuffled.append(changed)
+        mapping[str(record["id"])] = str(source["id"])
+    return shuffled, mapping
+
+
 def build_balanced_clinical_records(
     records: Sequence[dict[str, Any]], cfg: Any
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -151,25 +178,57 @@ def build_balanced_clinical_records(
             "pathological": 1.0 - cfg.clinical_healthy_ratio,
         },
     )
-    weights, weight_details = _label_weight_data(
-        groups["pathological"], cfg.rare_weight_cap
-    )
     rng = random.Random(cfg.seed)
     selected = _sample(rng, groups["healthy"], counts["healthy"])
-    selected.extend(
-        _sample(rng, groups["pathological"], counts["pathological"], weights)
-    )
+    strategy = cfg.clinical_sampling_strategy
+    target_draws: dict[str, int] | None = None
+    weight_details: dict[str, Any] | None = None
+    if strategy == "weighted":
+        weights, weight_details = _label_weight_data(
+            groups["pathological"], cfg.rare_weight_cap
+        )
+        pathological = _sample(
+            rng, groups["pathological"], counts["pathological"], weights
+        )
+    elif strategy == "label_quota":
+        pathological, target_draws = _sample_by_label_quota(
+            rng, groups["pathological"], counts["pathological"]
+        )
+    else:
+        raise ValueError(f"Unknown clinical sampling strategy: {strategy}")
+    selected.extend(pathological)
     rng.shuffle(selected)
     frequencies = Counter(label for row in selected for label in _labels(row))
     return selected, {
         "seed": cfg.seed,
         "effective_records": len(selected),
+        "clinical_sampling_strategy": strategy,
         "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
         "source_strata_counts": {name: len(rows) for name, rows in groups.items()},
         "sampled_strata_counts": counts,
         "sampled_label_frequencies": dict(sorted(frequencies.items())),
         "pathology_weights": weight_details,
+        "pathology_target_draws": target_draws,
     }
+
+
+def _sample_by_label_quota(
+    rng: random.Random,
+    records: Sequence[dict[str, Any]],
+    count: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    pools = {
+        label: [record for record in records if label in _labels(record)]
+        for label in CLINICAL_LABELS
+    }
+    pools = {label: rows for label, rows in pools.items() if rows}
+    if count and not pools:
+        raise ValueError("Cannot sample clinical labels from empty pathology pools")
+    labels = tuple(pools)
+    targets = [labels[index % len(labels)] for index in range(count)]
+    rng.shuffle(targets)
+    selected = [rng.choice(pools[label]) for label in targets]
+    return selected, dict(sorted(Counter(targets).items()))
 
 
 def _stratum(record: dict[str, Any]) -> str:

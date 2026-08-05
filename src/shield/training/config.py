@@ -159,7 +159,9 @@ class Config:
     clinical_rehearsal_ratio: float = 0.0
     clinical_adapter_path: str = ""
     clinical_balance: bool = False
+    clinical_sampling_strategy: str = "weighted"
     clinical_healthy_ratio: float = 0.3
+    clinical_image_shuffle_eval: bool = False
     healthy_ratio: float = 0.3
     pathological_ratio: float = 0.6
     other_ratio: float = 0.1
@@ -252,6 +254,7 @@ def available_metric_keys(
 def validate(cfg: Config) -> None:
     strategies = ("standard", "balanced", "clinical")
     phases = ("full", "clinical_only", "report_only")
+    clinical_sampling_strategies = ("weighted", "label_quota")
     if cfg.training_strategy not in strategies:
         raise ValueError(
             f"training_strategy deve essere uno di {strategies}, non "
@@ -261,6 +264,11 @@ def validate(cfg: Config) -> None:
         raise ValueError(
             f"training_phase deve essere uno di {phases}, non {cfg.training_phase!r}"
         )
+    if cfg.clinical_sampling_strategy not in clinical_sampling_strategies:
+        raise ValueError(
+            "clinical_sampling_strategy deve essere uno di "
+            f"{clinical_sampling_strategies}, non {cfg.clinical_sampling_strategy!r}"
+        )
     if cfg.training_strategy != "clinical" and cfg.training_phase != "full":
         raise ValueError("training_phase separato e' ammesso soltanto per clinical")
     if cfg.clinical_balance and (
@@ -268,6 +276,12 @@ def validate(cfg: Config) -> None:
     ):
         raise ValueError(
             "clinical_balance richiede uno stadio clinico eseguito nella run"
+        )
+    if cfg.clinical_image_shuffle_eval and (
+        cfg.training_strategy != "clinical" or cfg.training_phase == "report_only"
+    ):
+        raise ValueError(
+            "clinical_image_shuffle_eval richiede uno stadio clinico eseguito nella run"
         )
     if cfg.training_phase == "report_only":
         if not cfg.clinical_adapter_path:

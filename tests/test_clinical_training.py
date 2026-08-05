@@ -19,9 +19,11 @@ from shield.training.clinical import (
     build_balanced_clinical_records,
     build_clinical_records,
     build_stage_two_records,
+    shuffle_clinical_images,
     validate_clinical_source,
 )
 from shield.training.clinical_evaluation import (
+    clinical_image_shuffle_payload,
     clinical_mlflow_metrics,
     clinical_validation_payload,
     clinical_classification_metrics,
@@ -139,6 +141,58 @@ def test_clinical_validation_payload_keeps_raw_and_parsed_outputs():
     ]
 
 
+def test_shuffle_clinical_images_is_deterministic_and_moves_complete_studies():
+    rows = [record(f"case-{index}", ["No Finding"]) for index in range(4)]
+    shuffled, sources = shuffle_clinical_images(rows, seed=42)
+    repeated, repeated_sources = shuffle_clinical_images(rows, seed=42)
+    assert sources == repeated_sources
+    assert [row["images"] for row in shuffled] == [row["images"] for row in repeated]
+    assert [row["id"] for row in shuffled] == [row["id"] for row in rows]
+    assert all(sources[row["id"]] != row["id"] for row in rows)
+    for original, changed in zip(rows, shuffled):
+        source = next(row for row in rows if row["id"] == sources[original["id"]])
+        assert changed["images"] == source["images"]
+        assert changed["messages"][0] == original["messages"][0]
+        assert changed["messages"][-1] == original["messages"][-1]
+        assert changed["messages"][1]["content"][-1] == original["messages"][1]["content"][-1]
+        assert [item["image"] for item in changed["messages"][1]["content"][:-1]] == source["images"]
+        assert changed["factors"] == original["factors"]
+
+
+def test_clinical_image_shuffle_payload_keeps_metrics_deltas_and_sources():
+    rows = [record("case-a", ["No Finding"]), record("case-b", ["Pneumothorax"])]
+    shuffled, sources = shuffle_clinical_images(rows, seed=42)
+    references = [
+        "Clinical findings:\nNo Finding",
+        "Clinical findings:\nPneumothorax",
+    ]
+    predictions = [
+        "Clinical findings:\nNo Finding",
+        "Clinical findings:\nNo Finding",
+    ]
+    payload = clinical_image_shuffle_payload(
+        shuffled,
+        sources,
+        predictions,
+        references,
+        baseline_metrics={"f1_macro": 0.5, "f1_micro": 0.75},
+        epoch=2.0,
+        step=20,
+        seed=42,
+    )
+    assert payload["task"] == "clinical_classification_image_shuffle"
+    assert payload["seed"] == 42
+    assert payload["baseline_metrics"] == {"f1_macro": 0.5, "f1_micro": 0.75}
+    assert payload["metric_deltas"]["f1_macro"] == pytest.approx(
+        payload["metrics"]["f1_macro"] - 0.5
+    )
+    assert payload["metric_deltas"]["f1_micro"] == pytest.approx(
+        payload["metrics"]["f1_micro"] - 0.75
+    )
+    assert payload["samples"][0]["image_source_id"] == sources["case-a"]
+    assert payload["samples"][0]["image_paths"] == shuffled[0]["images"]
+
+
 def stage_records() -> list[dict]:
     rows = [record(f"healthy-{i}", ["No Finding"]) for i in range(12)]
     rows.extend(record(f"other-{i}", ["Other"]) for i in range(8))
@@ -220,6 +274,7 @@ def test_balanced_clinical_records_are_deterministic_and_reduce_no_finding():
         seed=42,
         clinical_healthy_ratio=0.3,
         rare_weight_cap=4.0,
+        clinical_sampling_strategy="weighted",
     )
     selected, stats = build_balanced_clinical_records(clinical, cfg)
     repeated, repeated_stats = build_balanced_clinical_records(clinical, cfg)
@@ -238,6 +293,27 @@ def test_balanced_clinical_records_are_deterministic_and_reduce_no_finding():
         "pathology_weights"
     ]["Lung Opacity"]
     assert stats["sampled_label_frequencies"]["No Finding"] == 7
+
+
+def test_label_quota_clinical_records_have_uniform_target_draws():
+    reports = stage_records()
+    clinical, _ = build_clinical_records(reports, expected_images=2)
+    cfg = SimpleNamespace(
+        seed=42,
+        clinical_healthy_ratio=0.3,
+        rare_weight_cap=4.0,
+        clinical_sampling_strategy="label_quota",
+    )
+    selected, stats = build_balanced_clinical_records(clinical, cfg)
+    repeated, repeated_stats = build_balanced_clinical_records(clinical, cfg)
+    assert [row["id"] for row in selected] == [row["id"] for row in repeated]
+    assert stats == repeated_stats
+    assert stats["clinical_sampling_strategy"] == "label_quota"
+    assert stats["pathology_weights"] is None
+    draws = stats["pathology_target_draws"]
+    assert set(draws) == {"Lung Opacity", "Pneumothorax"}
+    assert max(draws.values()) - min(draws.values()) <= 1
+    assert sum(draws.values()) == stats["sampled_strata_counts"]["pathological"]
 
 
 def test_clinical_mlflow_metrics_keep_aggregates_and_class_f1_only():
@@ -384,6 +460,7 @@ def test_training_phase_config_accepts_split_clinical_runs(cfg):
         ({"healthy_ratio": 0.4}, "sum"),
         ({"healthy_ratio": -0.1, "pathological_ratio": 1.0}, "healthy_ratio"),
         ({"rare_weight_cap": 0.0}, "rare_weight_cap"),
+        ({"clinical_sampling_strategy": "unknown"}, "clinical_sampling_strategy"),
         ({"training_phase": "unknown"}, "training_phase"),
         (
             {
@@ -403,6 +480,7 @@ def test_training_phase_config_accepts_split_clinical_runs(cfg):
         ),
         ({"clinical_healthy_ratio": 1.0}, "clinical_healthy_ratio"),
         ({"training_strategy": "balanced", "clinical_balance": True}, "clinical_balance"),
+        ({"clinical_image_shuffle_eval": True}, "clinical_image_shuffle_eval"),
         (
             {
                 "training_strategy": "clinical",
@@ -507,6 +585,7 @@ def test_clinical_training_outputs_are_run_artifacts():
     assert "clinical_adapter" in RUN_ARTIFACTS
     assert "clinical_val_history.csv" in RUN_ARTIFACTS
     assert "clinical_val_predictions_best.json" in RUN_ARTIFACTS
+    assert "clinical_image_shuffle.json" in RUN_ARTIFACTS
     assert "clinical_val_predictions" in RUN_ARTIFACTS
 
 
@@ -621,6 +700,49 @@ def test_clinical_probe_and_resume_entrypoints_use_batch_16(size):
     assert resume.gradient_accumulation_steps == 2
     assert probe.per_device_train_batch_size * probe.gradient_accumulation_steps == 16
     assert resume.per_device_train_batch_size * resume.gradient_accumulation_steps == 16
+
+
+def test_2b_clinical_ablation_entrypoints_change_only_declared_training_factor():
+    root = Path(__file__).resolve().parents[1]
+    folder = root / (
+        "training/en/Qwen-3-VL-2B-Instruct/lora/iu_xray_r2gen_FL-F"
+    )
+    names = ("clinical_probe", "clinical_probe_nf15", "clinical_probe_quota", "clinical_probe_vision")
+    configs = {}
+    for name in names:
+        script = folder / f"en_2B_lora_FL-F_{name}.py"
+        namespace = runpy.run_path(str(script), run_name=f"entrypoint_{name}")
+        configs[name] = build_config(
+            Identity.from_path(script), root, namespace["OVERRIDES"]
+        )
+    baseline = configs["clinical_probe"]
+    nf15 = configs["clinical_probe_nf15"]
+    quota = configs["clinical_probe_quota"]
+    vision = configs["clinical_probe_vision"]
+    for cfg in (nf15, quota, vision):
+        assert cfg.base_model == "Qwen/Qwen3-VL-2B-Instruct"
+        assert cfg.training_phase == "clinical_only"
+        assert cfg.clinical_pretrain_epochs == 3
+        assert cfg.per_device_train_batch_size == 8
+        assert cfg.gradient_accumulation_steps == 2
+        assert cfg.clinical_image_shuffle_eval is True
+        assert cfg.seed == 42
+    assert nf15.clinical_healthy_ratio == 0.15
+    assert nf15.clinical_sampling_strategy == baseline.clinical_sampling_strategy
+    assert nf15.learning_rate == baseline.learning_rate
+    assert nf15.vision_lr == baseline.vision_lr
+    assert nf15.merger_lr == baseline.merger_lr
+    assert quota.clinical_healthy_ratio == baseline.clinical_healthy_ratio
+    assert quota.clinical_sampling_strategy == "label_quota"
+    assert quota.learning_rate == baseline.learning_rate
+    assert quota.vision_lr == baseline.vision_lr
+    assert quota.merger_lr == baseline.merger_lr
+    assert vision.clinical_healthy_ratio == baseline.clinical_healthy_ratio
+    assert vision.clinical_sampling_strategy == baseline.clinical_sampling_strategy
+    assert vision.learning_rate == 2e-6
+    assert vision.vision_lr == 1e-5
+    assert vision.merger_lr == 1e-5
+    assert len({cfg.results_dir for cfg in (nf15, quota, vision)}) == 3
 
 
 def test_load_training_adapter_rejects_missing_adapter(tmp_path):

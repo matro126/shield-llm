@@ -9,7 +9,7 @@ from typing import Any
 
 from transformers import TrainerCallback
 
-from .clinical import CLINICAL_LABELS, NO_FINDING
+from .clinical import CLINICAL_LABELS, NO_FINDING, shuffle_clinical_images
 from .results import write_json_atomic
 
 CLINICAL_EVAL_LABELS = (*CLINICAL_LABELS, NO_FINDING)
@@ -121,6 +121,47 @@ def clinical_validation_payload(
     }
 
 
+def clinical_image_shuffle_payload(
+    records: Sequence[dict[str, Any]],
+    image_sources: dict[str, str],
+    predictions: Sequence[str],
+    references: Sequence[str],
+    baseline_metrics: dict[str, float],
+    epoch: float,
+    step: int,
+    seed: int,
+) -> dict[str, Any]:
+    metrics = clinical_classification_metrics(predictions, references)
+    common = sorted(set(metrics) & set(baseline_metrics))
+    samples = clinical_validation_payload(
+        records,
+        predictions,
+        references,
+        epoch,
+        step,
+        metrics,
+    )["samples"]
+    for record, sample in zip(records, samples):
+        sample["image_source_id"] = image_sources[str(record["id"])]
+        sample["image_paths"] = list(record["images"])
+    return {
+        "schema_version": 1,
+        "split": "val",
+        "task": "clinical_classification_image_shuffle",
+        "epoch": float(epoch),
+        "step": int(step),
+        "seed": int(seed),
+        "n_examples": len(samples),
+        "baseline_metrics": baseline_metrics,
+        "metrics": metrics,
+        "metric_deltas": {
+            key: float(metrics[key] - baseline_metrics[key]) for key in common
+        },
+        "image_sources": image_sources,
+        "samples": samples,
+    }
+
+
 class ClinicalEvalCallback(TrainerCallback):
     def __init__(
         self,
@@ -142,6 +183,7 @@ class ClinicalEvalCallback(TrainerCallback):
         self.history: list[dict[str, Any]] = []
         self.best: dict[str, Any] | None = None
         self.best_state: dict[str, Any] | None = None
+        self.image_shuffle: dict[str, Any] | None = None
 
     def _write_history(self) -> None:
         if not self.history:
@@ -180,6 +222,7 @@ class ClinicalEvalCallback(TrainerCallback):
                 "records": len(self.records),
                 "validation": self.history,
                 "best": self.best,
+                "image_shuffle": self.image_shuffle,
             },
         )
         self.writer.flush()
@@ -250,5 +293,52 @@ class ClinicalEvalCallback(TrainerCallback):
 
         set_peft_model_state_dict(model, self.best_state)
 
+    def evaluate_image_shuffle(self, model: Any) -> dict[str, Any]:
+        from .evaluation import generate_predictions
+
+        if self.best is None:
+            raise RuntimeError("Image shuffle requires a validated clinical adapter")
+        shuffled, sources = shuffle_clinical_images(self.records, self.cfg.seed)
+        started = time.time()
+        self.dashboard.status = "clinical validation con immagini scambiate"
+        predictions, references = generate_predictions(
+            model,
+            self.processor,
+            shuffled,
+            self.cfg.gen_batch_size,
+            min(self.cfg.max_new_tokens, 64),
+            self.cfg.repetition_penalty,
+            progress=lambda done, total: self.dashboard.log_progress(
+                "CLINICAL image shuffle", done, total, started
+            ),
+        )
+        self.image_shuffle = clinical_image_shuffle_payload(
+            shuffled,
+            sources,
+            predictions,
+            references,
+            self.best["metrics"],
+            self.best["epoch"],
+            self.best["step"],
+            self.cfg.seed,
+        )
+        self.image_shuffle["eval_seconds"] = round(time.time() - started, 1)
+        write_json_atomic(
+            self.results / "clinical_image_shuffle.json", self.image_shuffle
+        )
+        if self.mlflow is not None:
+            for key, value in clinical_mlflow_metrics(
+                self.image_shuffle["metrics"]
+            ).items():
+                self.mlflow.log_metric(
+                    f"clinical.shuffle.{key}", value, step=self.best["step"]
+                )
+        self._persist()
+        return self.image_shuffle
+
     def summary(self) -> dict[str, Any]:
-        return {"history": self.history, "best": self.best}
+        return {
+            "history": self.history,
+            "best": self.best,
+            "image_shuffle": self.image_shuffle,
+        }

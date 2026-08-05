@@ -228,6 +228,8 @@ def run_clinical_pretraining(
     started = time.time()
     train_result = trainer.train()
     evaluator.restore_best(model)
+    if cfg.clinical_image_shuffle_eval:
+        evaluator.evaluate_image_shuffle(model)
     duration = round(time.time() - started, 1)
     dash.stop()
     dash.status = "clinical pretraining terminato"
@@ -289,6 +291,7 @@ RUN_ARTIFACTS = (
     "clinical_training.json",
     "clinical_val_history.csv",
     "clinical_val_predictions_best.json",
+    "clinical_image_shuffle.json",
     "clinical_val_predictions",
     "train_history.csv",
     "val_history.csv",
@@ -589,6 +592,8 @@ def run_experiment(
                 "clinical_rehearsal_ratio": cfg.clinical_rehearsal_ratio,
                 "clinical_balance": cfg.clinical_balance,
                 "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
+                "clinical_sampling_strategy": cfg.clinical_sampling_strategy,
+                "clinical_image_shuffle_eval": cfg.clinical_image_shuffle_eval,
                 "gpu": "; ".join(gpus),
                 "python": platform.python_version(),
             },
@@ -688,6 +693,7 @@ def run_experiment(
                         "clinical_training.json",
                         "clinical_val_history.csv",
                         "clinical_val_predictions_best.json",
+                        "clinical_image_shuffle.json",
                     ):
                         path = results / name
                         if path.is_file():
