@@ -53,6 +53,12 @@ mlflow/**
 !mlflow/.gitkeep
 !mlflow/README.md
 
-training/
+training/**/results*/
+training/**/checkpoints/
+training/**/clinical_adapter/
+training/**/best_adapter/
+training/**/adapters/
+training/**/*.log
+training/**/*.out
 
 scripts/*/out/
