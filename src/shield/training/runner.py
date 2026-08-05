@@ -77,7 +77,7 @@ def prepare_training_records(
     if cfg.training_strategy == "clinical":
         expected_images = 2 if cfg.views == "frontal_lateral" else 1
         clinical_source, clinical_stats = build_clinical_records(
-            train_records, expected_images
+            train_records, expected_images, cfg.clinical_target_format
         )
         clinical_records = clinical_source
         if cfg.clinical_balance:
@@ -593,7 +593,9 @@ def run_experiment(
                 "clinical_balance": cfg.clinical_balance,
                 "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
                 "clinical_sampling_strategy": cfg.clinical_sampling_strategy,
+                "clinical_target_format": cfg.clinical_target_format,
                 "clinical_image_shuffle_eval": cfg.clinical_image_shuffle_eval,
+                "clinical_max_new_tokens": cfg.clinical_max_new_tokens,
                 "gpu": "; ".join(gpus),
                 "python": platform.python_version(),
             },

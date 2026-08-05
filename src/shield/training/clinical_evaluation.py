@@ -24,19 +24,73 @@ CLINICAL_AGGREGATE_METRICS = (
 )
 
 
-def parse_clinical_labels(text: str) -> list[str]:
+def _clinical_lines(text: str) -> list[str]:
     normalized = re.sub(r"[;,]", "\n", str(text))
-    lines = [
+    return [
         re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip().rstrip(".:")
         for line in normalized.splitlines()
     ]
+
+
+def _dense_status_data(
+    text: str,
+) -> tuple[dict[str, list[str]], list[str]]:
+    lookup = {label.casefold(): label for label in CLINICAL_LABELS}
+    statuses: dict[str, list[str]] = {}
+    invalid = set()
+    for line in _clinical_lines(text):
+        if ":" not in line:
+            continue
+        raw_label, raw_status = line.rsplit(":", 1)
+        label = lookup.get(raw_label.strip().casefold())
+        if label is None:
+            continue
+        status = raw_status.strip().rstrip(".").casefold()
+        if status not in ("present", "absent"):
+            invalid.add(label)
+            continue
+        statuses.setdefault(label, []).append(status)
+    return statuses, [label for label in CLINICAL_LABELS if label in invalid]
+
+
+def dense_clinical_format(text: str) -> dict[str, Any]:
+    statuses, invalid = _dense_status_data(text)
+    missing = [label for label in CLINICAL_LABELS if label not in statuses]
+    duplicates = [label for label in CLINICAL_LABELS if len(statuses.get(label, [])) > 1]
+    return {
+        "complete": not missing and not duplicates and not invalid,
+        "recognized_count": len(statuses),
+        "missing_labels": missing,
+        "duplicate_labels": duplicates,
+        "invalid_labels": invalid,
+    }
+
+
+def parse_clinical_labels(
+    text: str, target_format: str = "positive_only"
+) -> list[str]:
+    statuses, invalid = _dense_status_data(text)
+    if statuses or invalid:
+        present = {
+            label for label, values in statuses.items() if "present" in values
+        }
+        if present:
+            return [label for label in CLINICAL_LABELS if label in present]
+        if dense_clinical_format(text)["complete"]:
+            return [NO_FINDING]
+        return []
+    if target_format == "dense_binary":
+        return []
+    lines = _clinical_lines(text)
     lookup = {label.casefold(): label for label in CLINICAL_EVAL_LABELS}
     present = {lookup[line.casefold()] for line in lines if line.casefold() in lookup}
     return [label for label in CLINICAL_EVAL_LABELS if label in present]
 
 
 def clinical_classification_metrics(
-    predictions: Sequence[str], references: Sequence[str]
+    predictions: Sequence[str],
+    references: Sequence[str],
+    target_format: str = "positive_only",
 ) -> dict[str, float]:
     if len(predictions) != len(references):
         raise ValueError("Predizioni e riferimenti devono avere la stessa lunghezza")
@@ -48,8 +102,12 @@ def clinical_classification_metrics(
 
     encoder = MultiLabelBinarizer(classes=CLINICAL_EVAL_LABELS)
     encoder.fit([CLINICAL_EVAL_LABELS])
-    expected = encoder.transform([parse_clinical_labels(text) for text in references])
-    predicted = encoder.transform([parse_clinical_labels(text) for text in predictions])
+    expected = encoder.transform(
+        [parse_clinical_labels(text, target_format) for text in references]
+    )
+    predicted = encoder.transform(
+        [parse_clinical_labels(text, target_format) for text in predictions]
+    )
     result = {"accuracy_exact": float(accuracy_score(expected, predicted))}
 
     for average in ("macro", "micro"):
@@ -94,6 +152,7 @@ def clinical_validation_payload(
     epoch: float,
     step: int,
     metrics: dict[str, float],
+    target_format: str = "positive_only",
 ) -> dict[str, Any]:
     if not (len(records) == len(predictions) == len(references)):
         raise ValueError(
@@ -102,14 +161,14 @@ def clinical_validation_payload(
     samples = [
         {
             "id": record.get("id"),
-            "labels": parse_clinical_labels(reference),
-            "predicted_labels": parse_clinical_labels(prediction),
+            "labels": parse_clinical_labels(reference, target_format),
+            "predicted_labels": parse_clinical_labels(prediction, target_format),
             "reference": reference,
             "prediction": prediction,
         }
         for record, prediction, reference in zip(records, predictions, references)
     ]
-    return {
+    payload = {
         "schema_version": 1,
         "split": "val",
         "task": "clinical_classification",
@@ -119,6 +178,21 @@ def clinical_validation_payload(
         "metrics": metrics,
         "samples": samples,
     }
+    if target_format == "dense_binary":
+        incomplete = []
+        for sample in samples:
+            diagnostic = dense_clinical_format(sample["prediction"])
+            sample["format"] = diagnostic
+            if not diagnostic["complete"]:
+                incomplete.append(sample["id"])
+        complete = len(samples) - len(incomplete)
+        payload["format_compliance"] = {
+            "complete": complete,
+            "total": len(samples),
+            "ratio": complete / max(len(samples), 1),
+            "incomplete_ids": incomplete,
+        }
+    return payload
 
 
 def clinical_image_shuffle_payload(
@@ -130,21 +204,26 @@ def clinical_image_shuffle_payload(
     epoch: float,
     step: int,
     seed: int,
+    target_format: str = "positive_only",
 ) -> dict[str, Any]:
-    metrics = clinical_classification_metrics(predictions, references)
+    metrics = clinical_classification_metrics(
+        predictions, references, target_format
+    )
     common = sorted(set(metrics) & set(baseline_metrics))
-    samples = clinical_validation_payload(
+    validation = clinical_validation_payload(
         records,
         predictions,
         references,
         epoch,
         step,
         metrics,
-    )["samples"]
+        target_format,
+    )
+    samples = validation["samples"]
     for record, sample in zip(records, samples):
         sample["image_source_id"] = image_sources[str(record["id"])]
         sample["image_paths"] = list(record["images"])
-    return {
+    payload = {
         "schema_version": 1,
         "split": "val",
         "task": "clinical_classification_image_shuffle",
@@ -160,6 +239,9 @@ def clinical_image_shuffle_payload(
         "image_sources": image_sources,
         "samples": samples,
     }
+    if "format_compliance" in validation:
+        payload["format_compliance"] = validation["format_compliance"]
+    return payload
 
 
 class ClinicalEvalCallback(TrainerCallback):
@@ -240,13 +322,15 @@ class ClinicalEvalCallback(TrainerCallback):
             self.processor,
             self.records,
             self.cfg.gen_batch_size,
-            min(self.cfg.max_new_tokens, 64),
+            self.cfg.clinical_max_new_tokens,
             self.cfg.repetition_penalty,
             progress=lambda done, total: self.dashboard.log_progress(
                 "CLINICAL validation", done, total, started
             ),
         )
-        metrics = clinical_classification_metrics(predictions, references)
+        metrics = clinical_classification_metrics(
+            predictions, references, self.cfg.clinical_target_format
+        )
         row = {
             "epoch": epoch,
             "step": step,
@@ -261,6 +345,7 @@ class ClinicalEvalCallback(TrainerCallback):
             epoch,
             step,
             metrics,
+            self.cfg.clinical_target_format,
         )
         folder = self.results / "clinical_val_predictions"
         write_json_atomic(folder / f"step{step:06d}.json", payload)
@@ -306,7 +391,7 @@ class ClinicalEvalCallback(TrainerCallback):
             self.processor,
             shuffled,
             self.cfg.gen_batch_size,
-            min(self.cfg.max_new_tokens, 64),
+            self.cfg.clinical_max_new_tokens,
             self.cfg.repetition_penalty,
             progress=lambda done, total: self.dashboard.log_progress(
                 "CLINICAL image shuffle", done, total, started
@@ -321,6 +406,7 @@ class ClinicalEvalCallback(TrainerCallback):
             self.best["epoch"],
             self.best["step"],
             self.cfg.seed,
+            self.cfg.clinical_target_format,
         )
         self.image_shuffle["eval_seconds"] = round(time.time() - started, 1)
         write_json_atomic(

@@ -160,8 +160,10 @@ class Config:
     clinical_adapter_path: str = ""
     clinical_balance: bool = False
     clinical_sampling_strategy: str = "weighted"
+    clinical_target_format: str = "positive_only"
     clinical_healthy_ratio: float = 0.3
     clinical_image_shuffle_eval: bool = False
+    clinical_max_new_tokens: int = 64
     healthy_ratio: float = 0.3
     pathological_ratio: float = 0.6
     other_ratio: float = 0.1
@@ -255,6 +257,7 @@ def validate(cfg: Config) -> None:
     strategies = ("standard", "balanced", "clinical")
     phases = ("full", "clinical_only", "report_only")
     clinical_sampling_strategies = ("weighted", "label_quota")
+    clinical_target_formats = ("positive_only", "dense_binary")
     if cfg.training_strategy not in strategies:
         raise ValueError(
             f"training_strategy deve essere uno di {strategies}, non "
@@ -268,6 +271,11 @@ def validate(cfg: Config) -> None:
         raise ValueError(
             "clinical_sampling_strategy deve essere uno di "
             f"{clinical_sampling_strategies}, non {cfg.clinical_sampling_strategy!r}"
+        )
+    if cfg.clinical_target_format not in clinical_target_formats:
+        raise ValueError(
+            "clinical_target_format deve essere uno di "
+            f"{clinical_target_formats}, non {cfg.clinical_target_format!r}"
         )
     if cfg.training_strategy != "clinical" and cfg.training_phase != "full":
         raise ValueError("training_phase separato e' ammesso soltanto per clinical")
@@ -316,6 +324,8 @@ def validate(cfg: Config) -> None:
             )
     if not 0.0 < cfg.clinical_healthy_ratio < 1.0:
         raise ValueError("clinical_healthy_ratio deve essere compreso fra 0 e 1 esclusi")
+    if cfg.clinical_max_new_tokens < 1:
+        raise ValueError("clinical_max_new_tokens deve essere positivo")
     report_ratios = {
         "healthy_ratio": cfg.healthy_ratio,
         "pathological_ratio": cfg.pathological_ratio,

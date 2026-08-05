@@ -27,6 +27,7 @@ from shield.training.clinical_evaluation import (
     clinical_mlflow_metrics,
     clinical_validation_payload,
     clinical_classification_metrics,
+    dense_clinical_format,
     parse_clinical_labels,
 )
 from shield.training.model import (
@@ -87,6 +88,110 @@ def test_parse_clinical_labels_normalizes_only_allowed_labels():
     ]
 
 
+def test_parse_clinical_labels_reads_complete_dense_binary_output():
+    text = (
+        "Clinical findings:\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Present\n"
+        "Edema: Absent\n"
+        "Consolidation: Absent\n"
+        "Pneumonia: Absent\n"
+        "Atelectasis: Present\n"
+        "Lung Lesion: Absent\n"
+        "Lung Opacity: Present\n"
+        "Cardiomegaly: Absent\n"
+        "Enlarged Cardiomediastinum: Absent\n"
+        "Fracture: Absent\n"
+        "Pleural Other: Absent\n"
+        "Support Devices: Absent"
+    )
+    assert parse_clinical_labels(text) == [
+        "Pleural Effusion",
+        "Atelectasis",
+        "Lung Opacity",
+    ]
+    assert dense_clinical_format(text) == {
+        "complete": True,
+        "recognized_count": 13,
+        "missing_labels": [],
+        "duplicate_labels": [],
+        "invalid_labels": [],
+    }
+
+
+def test_parse_clinical_labels_derives_no_finding_only_from_complete_absence():
+    complete = (
+        "Clinical findings:\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Absent\n"
+        "Edema: Absent\n"
+        "Consolidation: Absent\n"
+        "Pneumonia: Absent\n"
+        "Atelectasis: Absent\n"
+        "Lung Lesion: Absent\n"
+        "Lung Opacity: Absent\n"
+        "Cardiomegaly: Absent\n"
+        "Enlarged Cardiomediastinum: Absent\n"
+        "Fracture: Absent\n"
+        "Pleural Other: Absent\n"
+        "Support Devices: Absent"
+    )
+    assert parse_clinical_labels(complete) == ["No Finding"]
+    assert parse_clinical_labels("Pneumothorax: Absent") == []
+
+
+def test_dense_metrics_do_not_credit_legacy_no_finding_shortcut():
+    reference = (
+        "Clinical findings:\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Absent\n"
+        "Edema: Absent\n"
+        "Consolidation: Absent\n"
+        "Pneumonia: Absent\n"
+        "Atelectasis: Absent\n"
+        "Lung Lesion: Absent\n"
+        "Lung Opacity: Absent\n"
+        "Cardiomegaly: Absent\n"
+        "Enlarged Cardiomediastinum: Absent\n"
+        "Fracture: Absent\n"
+        "Pleural Other: Absent\n"
+        "Support Devices: Absent"
+    )
+    metrics = clinical_classification_metrics(
+        ["Clinical findings:\nNo Finding"],
+        [reference],
+        target_format="dense_binary",
+    )
+    assert metrics["accuracy_exact"] == 0.0
+    assert metrics["cls_No_Finding_recall"] == 0.0
+
+
+def test_dense_clinical_format_reports_duplicates_invalid_and_missing_labels():
+    diagnostic = dense_clinical_format(
+        "Pneumothorax: Present\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Maybe"
+    )
+    assert diagnostic["complete"] is False
+    assert diagnostic["recognized_count"] == 1
+    assert diagnostic["duplicate_labels"] == ["Pneumothorax"]
+    assert diagnostic["invalid_labels"] == ["Pleural Effusion"]
+    assert diagnostic["missing_labels"] == [
+        "Pleural Effusion",
+        "Edema",
+        "Consolidation",
+        "Pneumonia",
+        "Atelectasis",
+        "Lung Lesion",
+        "Lung Opacity",
+        "Cardiomegaly",
+        "Enlarged Cardiomediastinum",
+        "Fracture",
+        "Pleural Other",
+        "Support Devices",
+    ]
+
+
 def test_clinical_classification_metrics_are_standard_multilabel_scores():
     references = [
         "Clinical findings:\nNo Finding",
@@ -139,6 +244,47 @@ def test_clinical_validation_payload_keeps_raw_and_parsed_outputs():
             "prediction": predictions[0],
         }
     ]
+
+
+def test_clinical_validation_payload_tracks_dense_format_completeness():
+    rows = [record("normal", ["No Finding"])]
+    references = [
+        "Clinical findings:\n"
+        + "\n".join(
+            [
+                "Pneumothorax: Absent",
+                "Pleural Effusion: Absent",
+                "Edema: Absent",
+                "Consolidation: Absent",
+                "Pneumonia: Absent",
+                "Atelectasis: Absent",
+                "Lung Lesion: Absent",
+                "Lung Opacity: Absent",
+                "Cardiomegaly: Absent",
+                "Enlarged Cardiomediastinum: Absent",
+                "Fracture: Absent",
+                "Pleural Other: Absent",
+                "Support Devices: Absent",
+            ]
+        )
+    ]
+    predictions = ["Pneumothorax: Absent"]
+    payload = clinical_validation_payload(
+        rows,
+        predictions,
+        references,
+        epoch=1.0,
+        step=10,
+        metrics={"f1_macro": 0.0},
+        target_format="dense_binary",
+    )
+    assert payload["format_compliance"] == {
+        "complete": 0,
+        "total": 1,
+        "ratio": 0.0,
+        "incomplete_ids": ["normal"],
+    }
+    assert payload["samples"][0]["format"]["complete"] is False
 
 
 def test_shuffle_clinical_images_is_deterministic_and_moves_complete_studies():
@@ -222,6 +368,47 @@ def test_build_clinical_records_keeps_only_supervised_categories():
     assert original[1]["messages"][-1]["content"] == "Findings:\nReport for pathological"
     assert stats["excluded_other"] == 1
     assert stats["excluded_unlabeled"] == 1
+
+
+def test_build_clinical_records_dense_binary_supervises_every_pathology():
+    clinical, _ = build_clinical_records(
+        source_records(), expected_images=2, target_format="dense_binary"
+    )
+    assert clinical[0]["messages"][-1]["content"] == (
+        "Clinical findings:\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Absent\n"
+        "Edema: Absent\n"
+        "Consolidation: Absent\n"
+        "Pneumonia: Absent\n"
+        "Atelectasis: Absent\n"
+        "Lung Lesion: Absent\n"
+        "Lung Opacity: Absent\n"
+        "Cardiomegaly: Absent\n"
+        "Enlarged Cardiomediastinum: Absent\n"
+        "Fracture: Absent\n"
+        "Pleural Other: Absent\n"
+        "Support Devices: Absent"
+    )
+    assert clinical[1]["messages"][-1]["content"] == (
+        "Clinical findings:\n"
+        "Pneumothorax: Absent\n"
+        "Pleural Effusion: Absent\n"
+        "Edema: Absent\n"
+        "Consolidation: Absent\n"
+        "Pneumonia: Absent\n"
+        "Atelectasis: Absent\n"
+        "Lung Lesion: Absent\n"
+        "Lung Opacity: Present\n"
+        "Cardiomegaly: Present\n"
+        "Enlarged Cardiomediastinum: Absent\n"
+        "Fracture: Absent\n"
+        "Pleural Other: Absent\n"
+        "Support Devices: Absent"
+    )
+    user_prompt = clinical[1]["messages"][1]["content"][-1]["text"]
+    assert "Present or Absent" in user_prompt
+    assert "No Finding" not in clinical[0]["messages"][-1]["content"]
 
 
 @pytest.mark.parametrize(
@@ -461,6 +648,8 @@ def test_training_phase_config_accepts_split_clinical_runs(cfg):
         ({"healthy_ratio": -0.1, "pathological_ratio": 1.0}, "healthy_ratio"),
         ({"rare_weight_cap": 0.0}, "rare_weight_cap"),
         ({"clinical_sampling_strategy": "unknown"}, "clinical_sampling_strategy"),
+        ({"clinical_target_format": "unknown"}, "clinical_target_format"),
+        ({"clinical_max_new_tokens": 0}, "clinical_max_new_tokens"),
         ({"training_phase": "unknown"}, "training_phase"),
         (
             {
@@ -743,6 +932,43 @@ def test_2b_clinical_ablation_entrypoints_change_only_declared_training_factor()
     assert vision.vision_lr == 1e-5
     assert vision.merger_lr == 1e-5
     assert len({cfg.results_dir for cfg in (nf15, quota, vision)}) == 3
+
+
+def test_2b_dense_clinical_probe_changes_only_target_representation():
+    root = Path(__file__).resolve().parents[1]
+    folder = root / (
+        "training/en/Qwen-3-VL-2B-Instruct/lora/iu_xray_r2gen_FL-F"
+    )
+    baseline_script = folder / "en_2B_lora_FL-F_clinical_probe.py"
+    dense_script = folder / "en_2B_lora_FL-F_clinical_probe_dense.py"
+    baseline_namespace = runpy.run_path(
+        str(baseline_script), run_name="entrypoint_dense_baseline"
+    )
+    dense_namespace = runpy.run_path(
+        str(dense_script), run_name="entrypoint_dense_probe"
+    )
+    baseline = build_config(
+        Identity.from_path(baseline_script), root, baseline_namespace["OVERRIDES"]
+    )
+    dense = build_config(
+        Identity.from_path(dense_script), root, dense_namespace["OVERRIDES"]
+    )
+    assert dense.experiment == "en_2B_lora_FL-F_clinical_probe_dense_b16"
+    assert Path(dense.results_dir).name == "results_clinical_probe_dense_b16"
+    assert baseline.clinical_target_format == "positive_only"
+    assert baseline.clinical_max_new_tokens == 64
+    assert dense.clinical_target_format == "dense_binary"
+    assert dense.clinical_max_new_tokens == 192
+    assert dense.training_phase == "clinical_only"
+    assert dense.clinical_sampling_strategy == "weighted"
+    assert dense.clinical_healthy_ratio == 0.3
+    assert dense.clinical_image_shuffle_eval is True
+    assert dense.learning_rate == baseline.learning_rate == 1e-5
+    assert dense.vision_lr == baseline.vision_lr == 1e-5
+    assert dense.merger_lr == baseline.merger_lr == 1e-5
+    assert dense.per_device_train_batch_size == 8
+    assert dense.gradient_accumulation_steps == 2
+    assert dense.seed == 42
 
 
 def test_load_training_adapter_rejects_missing_adapter(tmp_path):

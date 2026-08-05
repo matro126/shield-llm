@@ -38,6 +38,16 @@ CLINICAL_USER_PROMPT = (
     f"Allowed labels: {', '.join((*CLINICAL_LABELS, NO_FINDING))}.\n"
     "Use No Finding only when no listed abnormality is present."
 )
+DENSE_CLINICAL_SYSTEM_PROMPT = (
+    "You are an expert radiologist. Classify every requested chest X-ray finding "
+    "as Present or Absent using only the provided images."
+)
+DENSE_CLINICAL_USER_PROMPT = (
+    "Classify the chest X-ray. Answer EXACTLY in this format:\n"
+    "Clinical findings:\n"
+    + "\n".join(f"{label}: <Present or Absent>" for label in CLINICAL_LABELS)
+    + "\nReturn all labels in this order and do not include any other text."
+)
 
 
 def _labels(record: dict[str, Any]) -> list[str]:
@@ -89,18 +99,38 @@ def _ordered_positive_labels(labels: Sequence[str]) -> list[str]:
     return [label for label in CLINICAL_LABELS if label in present]
 
 
-def _clinical_record(record: dict[str, Any]) -> dict[str, Any]:
+def _dense_clinical_target(labels: Sequence[str]) -> str:
+    present = set(labels)
+    return "Clinical findings:\n" + "\n".join(
+        f"{label}: {'Present' if label in present else 'Absent'}"
+        for label in CLINICAL_LABELS
+    )
+
+
+def _clinical_record(
+    record: dict[str, Any], target_format: str
+) -> dict[str, Any]:
     transformed = deepcopy(record)
     ordered = _ordered_positive_labels(_labels(record))
-    transformed["messages"][0]["content"] = CLINICAL_SYSTEM_PROMPT
+    dense = target_format == "dense_binary"
+    transformed["messages"][0]["content"] = (
+        DENSE_CLINICAL_SYSTEM_PROMPT if dense else CLINICAL_SYSTEM_PROMPT
+    )
     content = transformed["messages"][1].get("content")
     if not isinstance(content, list):
         raise ValueError(f"Record {record.get('id')!r} has invalid user content")
     image_content = [item for item in content if item.get("type") == "image"]
-    image_content.append({"type": "text", "text": CLINICAL_USER_PROMPT})
+    image_content.append(
+        {
+            "type": "text",
+            "text": DENSE_CLINICAL_USER_PROMPT if dense else CLINICAL_USER_PROMPT,
+        }
+    )
     transformed["messages"][1]["content"] = image_content
-    transformed["messages"][-1]["content"] = "Clinical findings:\n" + "\n".join(
-        ordered
+    transformed["messages"][-1]["content"] = (
+        _dense_clinical_target(ordered)
+        if dense
+        else "Clinical findings:\n" + "\n".join(ordered)
     )
     transformed["factors"]["task_type"] = "clinical_classification"
     transformed["factors"]["diagnostic_category"] = ordered
@@ -108,8 +138,12 @@ def _clinical_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_clinical_records(
-    records: Sequence[dict[str, Any]], expected_images: int
+    records: Sequence[dict[str, Any]],
+    expected_images: int,
+    target_format: str = "positive_only",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if target_format not in ("positive_only", "dense_binary"):
+        raise ValueError(f"Unknown clinical target format: {target_format}")
     validate_clinical_source(records, expected_images)
     clinical: list[dict[str, Any]] = []
     excluded = Counter()
@@ -122,7 +156,7 @@ def build_clinical_records(
         if labels == [UNLABELED]:
             excluded["unlabeled"] += 1
             continue
-        transformed = _clinical_record(record)
+        transformed = _clinical_record(record, target_format)
         clinical.append(transformed)
         frequencies.update(transformed["factors"]["diagnostic_category"])
     stats = {
@@ -130,6 +164,7 @@ def build_clinical_records(
         "clinical_records": len(clinical),
         "excluded_other": excluded["other"],
         "excluded_unlabeled": excluded["unlabeled"],
+        "target_format": target_format,
         "label_frequencies": dict(sorted(frequencies.items())),
     }
     return clinical, stats
