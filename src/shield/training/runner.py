@@ -96,6 +96,15 @@ def prepare_training_records(
     }
 
 
+def prepare_clinical_validation_records(
+    val_records: list[dict[str, Any]], cfg: Config
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    expected_images = 2 if cfg.views == "frontal_lateral" else 1
+    return build_clinical_records(
+        val_records, expected_images, cfg.clinical_target_format
+    )
+
+
 def _component_rates(cfg: Config) -> dict[str, float]:
     return {
         "merger": cfg.merger_lr if cfg.merger_lr is not None else cfg.learning_rate,
@@ -466,9 +475,8 @@ def run_experiment(
     )
     clinical_val_records: list[dict[str, Any]] = []
     if clinical_records:
-        expected_images = 2 if cfg.views == "frontal_lateral" else 1
-        clinical_val_records, clinical_val_stats = build_clinical_records(
-            val_records, expected_images
+        clinical_val_records, clinical_val_stats = (
+            prepare_clinical_validation_records(val_records, cfg)
         )
         training_stats["clinical_validation"] = clinical_val_stats
     write_json_atomic(
