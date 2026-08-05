@@ -53,10 +53,6 @@ mlflow/**
 !mlflow/.gitkeep
 !mlflow/README.md
 
-
-training/**/results/
-training/**/results_balanced/
-training/**/results_clinical/
-*.log
+training/
 
 scripts/*/out/
