@@ -16,6 +16,11 @@ from shield.training.clinical import (
     build_stage_two_records,
     validate_clinical_source,
 )
+from shield.training.clinical_evaluation import (
+    clinical_validation_payload,
+    clinical_classification_metrics,
+    parse_clinical_labels,
+)
 
 
 def record(uid: str, labels: list[str]) -> dict:
@@ -52,6 +57,74 @@ def source_records() -> list[dict]:
         record("pathological", ["Cardiomegaly", "Lung Opacity"]),
         record("other", ["Other"]),
         record("unlabeled", ["Unlabeled"]),
+    ]
+
+
+def test_parse_clinical_labels_normalizes_only_allowed_labels():
+    text = (
+        "Clinical findings:\n"
+        "1. pleural effusion.\n"
+        "- Pneumothorax, No Finding\n"
+        "Unknown finding"
+    )
+    assert parse_clinical_labels(text) == [
+        "Pneumothorax",
+        "Pleural Effusion",
+        "No Finding",
+    ]
+
+
+def test_clinical_classification_metrics_are_standard_multilabel_scores():
+    references = [
+        "Clinical findings:\nNo Finding",
+        "Clinical findings:\nPneumothorax\nPleural Effusion",
+        "Clinical findings:\nCardiomegaly",
+    ]
+    predictions = [
+        "Clinical findings:\nNo Finding",
+        "Clinical findings:\nPneumothorax",
+        "Clinical findings:\nPleural Effusion",
+    ]
+    metrics = clinical_classification_metrics(predictions, references)
+    assert metrics["accuracy_exact"] == pytest.approx(1 / 3)
+    assert metrics["precision_micro"] == pytest.approx(2 / 3)
+    assert metrics["recall_micro"] == pytest.approx(1 / 2)
+    assert metrics["f1_micro"] == pytest.approx(4 / 7)
+    assert metrics["f1_macro"] == pytest.approx(1 / 7)
+    assert metrics["cls_Pneumothorax_f1"] == pytest.approx(1.0)
+    assert metrics["cls_Pleural_Effusion_f1"] == pytest.approx(0.0)
+    assert metrics["cls_Cardiomegaly_support"] == pytest.approx(1.0)
+
+
+def test_clinical_classification_metrics_reject_misaligned_inputs():
+    with pytest.raises(ValueError, match="stessa lunghezza"):
+        clinical_classification_metrics(["No Finding"], [])
+
+
+def test_clinical_validation_payload_keeps_raw_and_parsed_outputs():
+    rows = [record("normal", ["No Finding"])]
+    references = ["Clinical findings:\nNo Finding"]
+    predictions = ["Clinical findings:\nPneumothorax"]
+    payload = clinical_validation_payload(
+        rows,
+        predictions,
+        references,
+        epoch=2.0,
+        step=14,
+        metrics={"f1_macro": 0.25},
+    )
+    assert payload["epoch"] == 2.0
+    assert payload["step"] == 14
+    assert payload["n_examples"] == 1
+    assert payload["metrics"] == {"f1_macro": 0.25}
+    assert payload["samples"] == [
+        {
+            "id": "normal",
+            "labels": ["No Finding"],
+            "predicted_labels": ["Pneumothorax"],
+            "reference": references[0],
+            "prediction": predictions[0],
+        }
     ]
 
 
@@ -292,6 +365,9 @@ def test_prepare_training_records_leaves_standard_training_untouched():
 def test_clinical_training_outputs_are_run_artifacts():
     assert "clinical_training.json" in RUN_ARTIFACTS
     assert "clinical_adapter" in RUN_ARTIFACTS
+    assert "clinical_val_history.csv" in RUN_ARTIFACTS
+    assert "clinical_val_predictions_best.json" in RUN_ARTIFACTS
+    assert "clinical_val_predictions" in RUN_ARTIFACTS
 
 
 @pytest.mark.parametrize(
@@ -320,6 +396,63 @@ def test_fast_track_entrypoint_contract(
     assert cfg.max_epochs == 10
     assert cfg.early_stopping_patience == 3
     assert cfg.seed == 42
+
+
+def test_8b_balanced_and_clinical_entrypoints_are_controlled_comparison():
+    root = Path(__file__).resolve().parents[1]
+    folder = root / (
+        "training/en/Qwen-3-VL-8B-Instruct/lora/iu_xray_r2gen_FL-F"
+    )
+    configs = {}
+    for suffix in ("balanced", "clinical"):
+        script = folder / f"en_8B_lora_FL-F_{suffix}.py"
+        namespace = runpy.run_path(str(script), run_name=f"entrypoint_{suffix}")
+        configs[suffix] = build_config(
+            Identity.from_path(script), root, namespace["OVERRIDES"]
+        )
+
+    balanced = configs["balanced"]
+    clinical = configs["clinical"]
+    assert balanced.training_strategy == "balanced"
+    assert balanced.clinical_pretrain_epochs == 0
+    assert balanced.clinical_rehearsal_ratio == 0.0
+    assert clinical.training_strategy == "clinical"
+    assert clinical.clinical_pretrain_epochs == 3
+    assert clinical.clinical_rehearsal_ratio == 0.1
+
+    shared = (
+        "base_model",
+        "lora_r",
+        "lora_alpha",
+        "lora_dropout",
+        "target_modules",
+        "learning_rate",
+        "vision_lr",
+        "merger_lr",
+        "per_device_train_batch_size",
+        "gradient_accumulation_steps",
+        "max_epochs",
+        "early_stopping_patience",
+        "early_stopping_min_delta",
+        "monitor_metric",
+        "max_new_tokens",
+        "seed",
+    )
+    assert {name: getattr(balanced, name) for name in shared} == {
+        name: getattr(clinical, name) for name in shared
+    }
+    assert balanced.base_model == "Qwen/Qwen3-VL-8B-Instruct"
+    assert balanced.lora_r == 32
+    assert balanced.lora_alpha == 64
+    assert balanced.learning_rate == 1e-5
+    assert balanced.per_device_train_batch_size == 8
+    assert balanced.gradient_accumulation_steps == 2
+    assert balanced.per_device_train_batch_size * balanced.gradient_accumulation_steps == 16
+    assert balanced.max_epochs == 10
+    assert balanced.early_stopping_patience == 3
+    assert balanced.monitor_metric == "findings.chexbert_f1_macro"
+    assert balanced.max_new_tokens == 192
+    assert balanced.seed == 42
 
 
 def test_load_saved_run_uses_variant_configuration_and_result_root(tmp_path):

@@ -163,8 +163,10 @@ def _training_arguments(cfg: Config, output_dir: Path, epochs: int) -> Any:
 
 def run_clinical_pretraining(
     model: Any,
+    processor: Any,
     collator: Any,
     records: list[dict[str, Any]],
+    val_records: list[dict[str, Any]],
     cfg: Config,
     results: Path,
     writer: ResultsWriter,
@@ -173,11 +175,21 @@ def run_clinical_pretraining(
     from transformers import Trainer
 
     from .callbacks import LossLogger
+    from .clinical_evaluation import ClinicalEvalCallback
 
     steps = _steps_per_epoch(len(records), cfg)
     dash = LiveDashboard(
         title=f"{cfg.experiment} clinical pretraining",
         total_steps=steps * cfg.clinical_pretrain_epochs,
+    )
+    evaluator = ClinicalEvalCallback(
+        processor,
+        val_records,
+        cfg,
+        results,
+        dash,
+        writer,
+        mlflow,
     )
     trainer = Trainer(
         model=model,
@@ -186,12 +198,13 @@ def run_clinical_pretraining(
         ),
         train_dataset=records,
         data_collator=collator,
-        callbacks=[LossLogger(dash, mlflow, prefix="clinical.train")],
+        callbacks=[LossLogger(dash, mlflow, prefix="clinical.train"), evaluator],
         **build_optimizer(model, cfg),
     )
     dash.status = "clinical pretraining in corso…"
     started = time.time()
     train_result = trainer.train()
+    evaluator.restore_best(model)
     duration = round(time.time() - started, 1)
     dash.stop()
     dash.status = "clinical pretraining terminato"
@@ -204,6 +217,7 @@ def run_clinical_pretraining(
         "runtime_s": duration,
         "trainer_runtime_s": train_result.metrics.get("train_runtime"),
         "history": dash.train_rows,
+        "validation": evaluator.summary(),
         "adapter": str(results / "clinical_adapter"),
     }
     writer.set_in("stages", clinical=summary)
@@ -212,6 +226,10 @@ def run_clinical_pretraining(
         mlflow.log_metric("clinical.runtime_s", duration)
         mlflow.log_metric("clinical.records", len(records))
         mlflow.log_metric("clinical.epochs", cfg.clinical_pretrain_epochs)
+        if evaluator.best is not None:
+            mlflow.log_metric("clinical.best.f1_macro", evaluator.best["value"])
+            mlflow.set_tag("clinical.best.epoch", evaluator.best["epoch"])
+            mlflow.set_tag("clinical.best.step", evaluator.best["step"])
     del trainer
     gc.collect()
     return summary
@@ -246,6 +264,9 @@ def _vram_peak() -> dict[str, float]:
 RUN_ARTIFACTS = (
     "results.json",
     "clinical_training.json",
+    "clinical_val_history.csv",
+    "clinical_val_predictions_best.json",
+    "clinical_val_predictions",
     "train_history.csv",
     "val_history.csv",
     "val_predictions_best.json",
@@ -411,6 +432,13 @@ def run_experiment(
     clinical_records, stage_two_records, training_stats = prepare_training_records(
         train_records, cfg
     )
+    clinical_val_records: list[dict[str, Any]] = []
+    if clinical_records:
+        expected_images = 2 if cfg.views == "frontal_lateral" else 1
+        clinical_val_records, clinical_val_stats = build_clinical_records(
+            val_records, expected_images
+        )
+        training_stats["clinical_validation"] = clinical_val_stats
     write_json_atomic(
         results / "clinical_training.json",
         {
@@ -560,8 +588,10 @@ def run_experiment(
             if clinical_records:
                 run_clinical_pretraining(
                     model,
+                    processor,
                     collator,
                     clinical_records,
+                    clinical_val_records,
                     cfg,
                     results,
                     writer,
@@ -672,6 +702,8 @@ def run_experiment(
             for name in (
                 "results.json",
                 "clinical_training.json",
+                "clinical_val_history.csv",
+                "clinical_val_predictions_best.json",
                 "train_history.csv",
                 "val_history.csv",
                 "val_predictions_best.csv",
@@ -686,6 +718,11 @@ def run_experiment(
             )
             log_artifact_if_exists(
                 results / "clinical_adapter", "clinical_adapter", allow_dir=True
+            )
+            log_artifact_if_exists(
+                results / "clinical_val_predictions",
+                "clinical_val_predictions",
+                allow_dir=True,
             )
 
     best = summary.get("best")
