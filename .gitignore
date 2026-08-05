@@ -55,5 +55,8 @@ mlflow/**
 
 
 training/**/results/
+training/**/results_balanced/
+training/**/results_clinical/
+*.log
 
 scripts/*/out/
