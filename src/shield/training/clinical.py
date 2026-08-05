@@ -26,6 +26,7 @@ CLINICAL_LABELS = (
 NO_FINDING = "No Finding"
 OTHER = "Other"
 UNLABELED = "Unlabeled"
+FALLBACK_LABELS = (OTHER, UNLABELED)
 ALLOWED_LABELS = frozenset((*CLINICAL_LABELS, NO_FINDING, OTHER, UNLABELED))
 CLINICAL_SYSTEM_PROMPT = (
     "You are an expert radiologist. Classify the visible chest X-ray findings using "
@@ -92,26 +93,61 @@ def validate_clinical_source(
             raise ValueError(f"Record {uid!r} has no assistant target")
 
 
-def _ordered_positive_labels(labels: Sequence[str]) -> list[str]:
+def _output_labels(include_fallback_labels: bool) -> tuple[str, ...]:
+    if include_fallback_labels:
+        return (*CLINICAL_LABELS, *FALLBACK_LABELS)
+    return CLINICAL_LABELS
+
+
+def _positive_user_prompt(include_fallback_labels: bool) -> str:
+    labels = (*_output_labels(include_fallback_labels), NO_FINDING)
+    return (
+        "Classify the chest X-ray. Answer EXACTLY in this format:\n"
+        "Clinical findings:\n"
+        "<one positive label per line>\n"
+        f"Allowed labels: {', '.join(labels)}.\n"
+        "Use No Finding only when no listed abnormality is present."
+    )
+
+
+def _dense_user_prompt(include_fallback_labels: bool) -> str:
+    return (
+        "Classify the chest X-ray. Answer EXACTLY in this format:\n"
+        "Clinical findings:\n"
+        + "\n".join(
+            f"{label}: <Present or Absent>"
+            for label in _output_labels(include_fallback_labels)
+        )
+        + "\nReturn all labels in this order and do not include any other text."
+    )
+
+
+def _ordered_positive_labels(
+    labels: Sequence[str], include_fallback_labels: bool
+) -> list[str]:
     if labels == [NO_FINDING]:
         return [NO_FINDING]
     present = set(labels)
-    return [label for label in CLINICAL_LABELS if label in present]
+    return [
+        label for label in _output_labels(include_fallback_labels) if label in present
+    ]
 
 
-def _dense_clinical_target(labels: Sequence[str]) -> str:
+def _dense_clinical_target(
+    labels: Sequence[str], include_fallback_labels: bool
+) -> str:
     present = set(labels)
     return "Clinical findings:\n" + "\n".join(
         f"{label}: {'Present' if label in present else 'Absent'}"
-        for label in CLINICAL_LABELS
+        for label in _output_labels(include_fallback_labels)
     )
 
 
 def _clinical_record(
-    record: dict[str, Any], target_format: str
+    record: dict[str, Any], target_format: str, include_fallback_labels: bool
 ) -> dict[str, Any]:
     transformed = deepcopy(record)
-    ordered = _ordered_positive_labels(_labels(record))
+    ordered = _ordered_positive_labels(_labels(record), include_fallback_labels)
     dense = target_format == "dense_binary"
     transformed["messages"][0]["content"] = (
         DENSE_CLINICAL_SYSTEM_PROMPT if dense else CLINICAL_SYSTEM_PROMPT
@@ -123,12 +159,16 @@ def _clinical_record(
     image_content.append(
         {
             "type": "text",
-            "text": DENSE_CLINICAL_USER_PROMPT if dense else CLINICAL_USER_PROMPT,
+            "text": (
+                _dense_user_prompt(include_fallback_labels)
+                if dense
+                else _positive_user_prompt(include_fallback_labels)
+            ),
         }
     )
     transformed["messages"][1]["content"] = image_content
     transformed["messages"][-1]["content"] = (
-        _dense_clinical_target(ordered)
+        _dense_clinical_target(ordered, include_fallback_labels)
         if dense
         else "Clinical findings:\n" + "\n".join(ordered)
     )
@@ -141,22 +181,30 @@ def build_clinical_records(
     records: Sequence[dict[str, Any]],
     expected_images: int,
     target_format: str = "positive_only",
+    include_fallback_records: bool = False,
+    include_fallback_labels: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if target_format not in ("positive_only", "dense_binary"):
         raise ValueError(f"Unknown clinical target format: {target_format}")
+    if include_fallback_records and not include_fallback_labels:
+        raise ValueError(
+            "include_fallback_records requires include_fallback_labels"
+        )
     validate_clinical_source(records, expected_images)
     clinical: list[dict[str, Any]] = []
     excluded = Counter()
     frequencies = Counter()
     for record in records:
         labels = _labels(record)
-        if labels == [OTHER]:
+        if labels == [OTHER] and not include_fallback_records:
             excluded["other"] += 1
             continue
-        if labels == [UNLABELED]:
+        if labels == [UNLABELED] and not include_fallback_records:
             excluded["unlabeled"] += 1
             continue
-        transformed = _clinical_record(record, target_format)
+        transformed = _clinical_record(
+            record, target_format, include_fallback_labels
+        )
         clinical.append(transformed)
         frequencies.update(transformed["factors"]["diagnostic_category"])
     stats = {
@@ -165,6 +213,8 @@ def build_clinical_records(
         "excluded_other": excluded["other"],
         "excluded_unlabeled": excluded["unlabeled"],
         "target_format": target_format,
+        "include_fallback_records": include_fallback_records,
+        "include_fallback_labels": include_fallback_labels,
         "label_frequencies": dict(sorted(frequencies.items())),
     }
     return clinical, stats

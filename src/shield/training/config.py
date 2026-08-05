@@ -161,6 +161,7 @@ class Config:
     clinical_balance: bool = False
     clinical_sampling_strategy: str = "weighted"
     clinical_target_format: str = "positive_only"
+    clinical_include_fallback: bool = False
     clinical_healthy_ratio: float = 0.3
     clinical_image_shuffle_eval: bool = False
     clinical_max_new_tokens: int = 64
@@ -284,6 +285,10 @@ def validate(cfg: Config) -> None:
     ):
         raise ValueError(
             "clinical_balance richiede uno stadio clinico eseguito nella run"
+        )
+    if cfg.clinical_include_fallback and cfg.clinical_balance:
+        raise ValueError(
+            "clinical_include_fallback non e' compatibile con clinical_balance"
         )
     if cfg.clinical_image_shuffle_eval and (
         cfg.training_strategy != "clinical" or cfg.training_phase == "report_only"

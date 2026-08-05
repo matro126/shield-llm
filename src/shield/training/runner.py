@@ -77,7 +77,11 @@ def prepare_training_records(
     if cfg.training_strategy == "clinical":
         expected_images = 2 if cfg.views == "frontal_lateral" else 1
         clinical_source, clinical_stats = build_clinical_records(
-            train_records, expected_images, cfg.clinical_target_format
+            train_records,
+            expected_images,
+            cfg.clinical_target_format,
+            cfg.clinical_include_fallback,
+            cfg.clinical_include_fallback,
         )
         clinical_records = clinical_source
         if cfg.clinical_balance:
@@ -101,7 +105,11 @@ def prepare_clinical_validation_records(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     expected_images = 2 if cfg.views == "frontal_lateral" else 1
     return build_clinical_records(
-        val_records, expected_images, cfg.clinical_target_format
+        val_records,
+        expected_images,
+        cfg.clinical_target_format,
+        False,
+        cfg.clinical_include_fallback,
     )
 
 
@@ -602,6 +610,7 @@ def run_experiment(
                 "clinical_healthy_ratio": cfg.clinical_healthy_ratio,
                 "clinical_sampling_strategy": cfg.clinical_sampling_strategy,
                 "clinical_target_format": cfg.clinical_target_format,
+                "clinical_include_fallback": cfg.clinical_include_fallback,
                 "clinical_image_shuffle_eval": cfg.clinical_image_shuffle_eval,
                 "clinical_max_new_tokens": cfg.clinical_max_new_tokens,
                 "gpu": "; ".join(gpus),

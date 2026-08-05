@@ -9,7 +9,12 @@ from typing import Any
 
 from transformers import TrainerCallback
 
-from .clinical import CLINICAL_LABELS, NO_FINDING, shuffle_clinical_images
+from .clinical import (
+    CLINICAL_LABELS,
+    FALLBACK_LABELS,
+    NO_FINDING,
+    shuffle_clinical_images,
+)
 from .results import write_json_atomic
 
 CLINICAL_EVAL_LABELS = (*CLINICAL_LABELS, NO_FINDING)
@@ -33,9 +38,14 @@ def _clinical_lines(text: str) -> list[str]:
 
 
 def _dense_status_data(
-    text: str,
+    text: str, include_fallback_labels: bool = False
 ) -> tuple[dict[str, list[str]], list[str]]:
-    lookup = {label.casefold(): label for label in CLINICAL_LABELS}
+    labels = (
+        (*CLINICAL_LABELS, *FALLBACK_LABELS)
+        if include_fallback_labels
+        else CLINICAL_LABELS
+    )
+    lookup = {label.casefold(): label for label in labels}
     statuses: dict[str, list[str]] = {}
     invalid = set()
     for line in _clinical_lines(text):
@@ -50,13 +60,20 @@ def _dense_status_data(
             invalid.add(label)
             continue
         statuses.setdefault(label, []).append(status)
-    return statuses, [label for label in CLINICAL_LABELS if label in invalid]
+    return statuses, [label for label in labels if label in invalid]
 
 
-def dense_clinical_format(text: str) -> dict[str, Any]:
-    statuses, invalid = _dense_status_data(text)
-    missing = [label for label in CLINICAL_LABELS if label not in statuses]
-    duplicates = [label for label in CLINICAL_LABELS if len(statuses.get(label, [])) > 1]
+def dense_clinical_format(
+    text: str, include_fallback_labels: bool = False
+) -> dict[str, Any]:
+    labels = (
+        (*CLINICAL_LABELS, *FALLBACK_LABELS)
+        if include_fallback_labels
+        else CLINICAL_LABELS
+    )
+    statuses, invalid = _dense_status_data(text, include_fallback_labels)
+    missing = [label for label in labels if label not in statuses]
+    duplicates = [label for label in labels if len(statuses.get(label, [])) > 1]
     return {
         "complete": not missing and not duplicates and not invalid,
         "recognized_count": len(statuses),
@@ -67,30 +84,43 @@ def dense_clinical_format(text: str) -> dict[str, Any]:
 
 
 def parse_clinical_labels(
-    text: str, target_format: str = "positive_only"
+    text: str,
+    target_format: str = "positive_only",
+    include_fallback_labels: bool = False,
 ) -> list[str]:
-    statuses, invalid = _dense_status_data(text)
+    labels = (
+        (*CLINICAL_LABELS, *FALLBACK_LABELS)
+        if include_fallback_labels
+        else CLINICAL_LABELS
+    )
+    statuses, invalid = _dense_status_data(text, include_fallback_labels)
     if statuses or invalid:
         present = {
             label for label, values in statuses.items() if "present" in values
         }
         if present:
-            return [label for label in CLINICAL_LABELS if label in present]
-        if dense_clinical_format(text)["complete"]:
+            return [label for label in labels if label in present]
+        if dense_clinical_format(text, include_fallback_labels)["complete"]:
             return [NO_FINDING]
         return []
     if target_format == "dense_binary":
         return []
     lines = _clinical_lines(text)
-    lookup = {label.casefold(): label for label in CLINICAL_EVAL_LABELS}
+    eval_labels = (
+        (*CLINICAL_EVAL_LABELS, *FALLBACK_LABELS)
+        if include_fallback_labels
+        else CLINICAL_EVAL_LABELS
+    )
+    lookup = {label.casefold(): label for label in eval_labels}
     present = {lookup[line.casefold()] for line in lines if line.casefold() in lookup}
-    return [label for label in CLINICAL_EVAL_LABELS if label in present]
+    return [label for label in eval_labels if label in present]
 
 
 def clinical_classification_metrics(
     predictions: Sequence[str],
     references: Sequence[str],
     target_format: str = "positive_only",
+    include_fallback_labels: bool = False,
 ) -> dict[str, float]:
     if len(predictions) != len(references):
         raise ValueError("Predizioni e riferimenti devono avere la stessa lunghezza")
@@ -100,20 +130,34 @@ def clinical_classification_metrics(
     from sklearn.metrics import accuracy_score, precision_recall_fscore_support
     from sklearn.preprocessing import MultiLabelBinarizer
 
-    encoder = MultiLabelBinarizer(classes=CLINICAL_EVAL_LABELS)
-    encoder.fit([CLINICAL_EVAL_LABELS])
+    eval_labels = (
+        (*CLINICAL_EVAL_LABELS, *FALLBACK_LABELS)
+        if include_fallback_labels
+        else CLINICAL_EVAL_LABELS
+    )
+    encoder = MultiLabelBinarizer(classes=eval_labels)
+    encoder.fit([eval_labels])
     expected = encoder.transform(
-        [parse_clinical_labels(text, target_format) for text in references]
+        [
+            parse_clinical_labels(text, target_format, include_fallback_labels)
+            for text in references
+        ]
     )
     predicted = encoder.transform(
-        [parse_clinical_labels(text, target_format) for text in predictions]
+        [
+            parse_clinical_labels(text, target_format, include_fallback_labels)
+            for text in predictions
+        ]
     )
     result = {"accuracy_exact": float(accuracy_score(expected, predicted))}
+    clinical_width = len(CLINICAL_EVAL_LABELS)
+    expected_clinical = expected[:, :clinical_width]
+    predicted_clinical = predicted[:, :clinical_width]
 
     for average in ("macro", "micro"):
         precision, recall, f1, _ = precision_recall_fscore_support(
-            expected,
-            predicted,
+            expected_clinical,
+            predicted_clinical,
             average=average,
             zero_division=0,
         )
@@ -127,12 +171,15 @@ def clinical_classification_metrics(
         average=None,
         zero_division=0,
     )
-    for index, label in enumerate(CLINICAL_EVAL_LABELS):
+    for index, label in enumerate(eval_labels):
         key = label.replace(" ", "_").replace("/", "_")
         result[f"cls_{key}_precision"] = float(precision[index])
         result[f"cls_{key}_recall"] = float(recall[index])
         result[f"cls_{key}_f1"] = float(f1[index])
         result[f"cls_{key}_support"] = float(support[index])
+    if include_fallback_labels:
+        fallback = predicted[:, clinical_width:]
+        result["fallback_prediction_rate"] = float(fallback.any(axis=1).mean())
     return result
 
 
@@ -153,6 +200,7 @@ def clinical_validation_payload(
     step: int,
     metrics: dict[str, float],
     target_format: str = "positive_only",
+    include_fallback_labels: bool = False,
 ) -> dict[str, Any]:
     if not (len(records) == len(predictions) == len(references)):
         raise ValueError(
@@ -161,8 +209,12 @@ def clinical_validation_payload(
     samples = [
         {
             "id": record.get("id"),
-            "labels": parse_clinical_labels(reference, target_format),
-            "predicted_labels": parse_clinical_labels(prediction, target_format),
+            "labels": parse_clinical_labels(
+                reference, target_format, include_fallback_labels
+            ),
+            "predicted_labels": parse_clinical_labels(
+                prediction, target_format, include_fallback_labels
+            ),
             "reference": reference,
             "prediction": prediction,
         }
@@ -181,7 +233,9 @@ def clinical_validation_payload(
     if target_format == "dense_binary":
         incomplete = []
         for sample in samples:
-            diagnostic = dense_clinical_format(sample["prediction"])
+            diagnostic = dense_clinical_format(
+                sample["prediction"], include_fallback_labels
+            )
             sample["format"] = diagnostic
             if not diagnostic["complete"]:
                 incomplete.append(sample["id"])
@@ -205,9 +259,10 @@ def clinical_image_shuffle_payload(
     step: int,
     seed: int,
     target_format: str = "positive_only",
+    include_fallback_labels: bool = False,
 ) -> dict[str, Any]:
     metrics = clinical_classification_metrics(
-        predictions, references, target_format
+        predictions, references, target_format, include_fallback_labels
     )
     common = sorted(set(metrics) & set(baseline_metrics))
     validation = clinical_validation_payload(
@@ -218,6 +273,7 @@ def clinical_image_shuffle_payload(
         step,
         metrics,
         target_format,
+        include_fallback_labels,
     )
     samples = validation["samples"]
     for record, sample in zip(records, samples):
@@ -329,7 +385,10 @@ class ClinicalEvalCallback(TrainerCallback):
             ),
         )
         metrics = clinical_classification_metrics(
-            predictions, references, self.cfg.clinical_target_format
+            predictions,
+            references,
+            self.cfg.clinical_target_format,
+            self.cfg.clinical_include_fallback,
         )
         row = {
             "epoch": epoch,
@@ -346,6 +405,7 @@ class ClinicalEvalCallback(TrainerCallback):
             step,
             metrics,
             self.cfg.clinical_target_format,
+            self.cfg.clinical_include_fallback,
         )
         folder = self.results / "clinical_val_predictions"
         write_json_atomic(folder / f"step{step:06d}.json", payload)
@@ -407,6 +467,7 @@ class ClinicalEvalCallback(TrainerCallback):
             self.best["step"],
             self.cfg.seed,
             self.cfg.clinical_target_format,
+            self.cfg.clinical_include_fallback,
         )
         self.image_shuffle["eval_seconds"] = round(time.time() - started, 1)
         write_json_atomic(
