@@ -80,49 +80,49 @@ stages:
       size: 2873777
     - path: src/shield/data/build.py
       hash: md5
-      md5: fdde1d33e705965182e010fb817851be
-      size: 12999
+      md5: 78bd072f75e59852b8b0bd1be594e6a0
+      size: 10520
     - path: src/shield/data/images.py
       hash: md5
-      md5: 7242c9ca0e0ac03be4ddeb9b4c4e90c4
-      size: 1139
+      md5: fa7aa095088adf25a8fe210ec4e60053
+      size: 646
     - path: src/shield/data/openi.py
       hash: md5
-      md5: de6f2d9fc0e3368401050986e539d169
-      size: 8363
+      md5: dd6ee66ce381ba7390219bb65b02eb09
+      size: 6133
     - path: src/shield/data/prompts.py
       hash: md5
-      md5: c2c697e0d88ce8a4c4264f4b6f725bc2
-      size: 10660
+      md5: 6c3ee6b54019a29021b4b882d0435dd1
+      size: 8014
     - path: src/shield/data/records.py
       hash: md5
-      md5: cf71fcd0e437397f4aca48887db553a3
-      size: 2278
+      md5: 4f900f76f0043325c9cfaf4c0cfcac68
+      size: 2140
     - path: src/shield/data/text_source.py
       hash: md5
-      md5: 113b3517d2035ebe861c69dd120c6e3f
-      size: 2336
+      md5: ad156df23678fc50506a058462c9d767
+      size: 1456
     - path: src/shield/tracking/__init__.py
       hash: md5
-      md5: 47cf22a844f3dcf5f40520185da91668
-      size: 1063
+      md5: 19d26644587004d80f69abb062829951
+      size: 1201
     - path: src/shield/tracking/core.py
       hash: md5
       md5: c14bd3fa78a792dac5215848e26dc650
       size: 7342
     - path: src/shield/tracking/provenance.py
       hash: md5
-      md5: 1a1f794b71c67f02d11cbb0c3ff74ba4
-      size: 4149
+      md5: dca82849a13b0ab679b63b12a60204fb
+      size: 7616
     - path: uv.lock
       hash: md5
-      md5: 9cf668cea04914802a822f7c73908929
-      size: 363486
+      md5: b2a420d48d7e06e8f7b5e903bda719ad
+      size: 370856
     outs:
     - path: dataset/iu-xray/en/iu_xray_en_F-FI
       hash: md5
-      md5: d102abb3ffd8429674465736f27aa912.dir
-      size: 455644909
+      md5: d0bf48af484aa085d9c90aa11a6462b0.dir
+      size: 455644960
       nfiles: 2944
   build_iu_xray_en_FL_F:
     cmd: uv run python -m shield.data.build --version iu_xray_en_FL-F
