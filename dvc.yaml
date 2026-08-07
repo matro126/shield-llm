@@ -1,4 +1,3 @@
-# dvc.yaml: 8 build (4 combinazioni viste×target × 2 lingue) + sanity_check.
 stages:
   build_iu_xray_en_F_F:
     cmd: uv run python -m shield.data.build --version iu_xray_en_F-F
@@ -174,3 +173,123 @@ stages:
       - dataset/iu-xray/ita/iu_xray_it_FL-F
       - dataset/iu-xray/ita/iu_xray_it_FL-FI
     always_changed: true
+
+  build_iu_xray_en_other_F_F:
+    cmd: uv run python -m shield.data.build_diagnostic --variant other --version iu_xray_en_F-F
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/other/iu_xray_en_F-F
+
+  build_iu_xray_en_other_F_FI:
+    cmd: uv run python -m shield.data.build_diagnostic --variant other --version iu_xray_en_F-FI
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/other/iu_xray_en_F-FI
+
+  build_iu_xray_en_other_FL_F:
+    cmd: uv run python -m shield.data.build_diagnostic --variant other --version iu_xray_en_FL-F
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/other/iu_xray_en_FL-F
+
+  build_iu_xray_en_other_FL_FI:
+    cmd: uv run python -m shield.data.build_diagnostic --variant other --version iu_xray_en_FL-FI
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/other/iu_xray_en_FL-FI
+
+  build_iu_xray_en_no_other_F_F:
+    cmd: uv run python -m shield.data.build_diagnostic --variant no_other --version iu_xray_en_F-F
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/no_other/iu_xray_en_F-F
+
+  build_iu_xray_en_no_other_F_FI:
+    cmd: uv run python -m shield.data.build_diagnostic --variant no_other --version iu_xray_en_F-FI
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/no_other/iu_xray_en_F-FI
+
+  build_iu_xray_en_no_other_FL_F:
+    cmd: uv run python -m shield.data.build_diagnostic --variant no_other --version iu_xray_en_FL-F
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/no_other/iu_xray_en_FL-F
+
+  build_iu_xray_en_no_other_FL_FI:
+    cmd: uv run python -m shield.data.build_diagnostic --variant no_other --version iu_xray_en_FL-FI
+    deps:
+      - dataset/iu-xray/iu_xray_r2gen_final_impression_diagnostic
+      - src/shield/data/build_diagnostic.py
+      - src/shield/data/images.py
+      - src/shield/data/prompts.py
+      - src/shield/data/records.py
+      - src/shield/tracking/__init__.py
+      - src/shield/tracking/core.py
+      - src/shield/tracking/provenance.py
+      - uv.lock
+    outs:
+      - dataset/iu-xray/en/no_other/iu_xray_en_FL-FI

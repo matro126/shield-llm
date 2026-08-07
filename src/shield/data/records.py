@@ -9,7 +9,7 @@ def build_record(
     *,
     uid: str,
     categories: Sequence[str],
-    mesh_raw: Sequence[str],
+    mesh_raw: Sequence[str] | None,
     projections: Sequence[str],
     rel_images: Sequence[str],
     assistant_text: str,
@@ -23,7 +23,7 @@ def build_record(
         {"type": "image", "image": rel} for rel in rel_images
     ]
     content.append({"type": "text", "text": user_prompt})
-    return {
+    record = {
         "id": uid,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -39,13 +39,15 @@ def build_record(
             "views": list(projections),
             "task_type": "report_generation",
         },
-        "mesh_raw": list(mesh_raw),
         "provenance": {
             "source_lang": source_lang,
             "target_lang": target_lang,
             "translation_method": translation_method,
         },
     }
+    if mesh_raw is not None:
+        record["mesh_raw"] = list(mesh_raw)
+    return record
 
 
 def compute_stats(
