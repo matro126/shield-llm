@@ -27,9 +27,7 @@ dataset/**
 !dataset/**/
 !dataset/**/*.dvc
 !dataset/**/.gitignore
-!dataset/**/manifest.yaml
 !dataset/**/dataset_card.md
-!dataset/**/stats.json
 !dataset/**/README.md
 
 models/**
