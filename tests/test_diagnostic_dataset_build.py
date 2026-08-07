@@ -5,8 +5,10 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 import shield.data.build_diagnostic as diagnostic_build
+import shield.tracking as shield_tracking
 
 
 def write_image(path: Path) -> None:
@@ -65,6 +67,18 @@ def test_other_uses_diagnostic_labels_and_omits_mesh_raw(
 ) -> None:
     source, _ = prepare_source(tmp_path)
     monkeypatch.setattr(diagnostic_build, "normalize_image", copy_image)
+    monkeypatch.setattr(
+        shield_tracking,
+        "git_metadata",
+        lambda root: {
+            "git.commit": "abc123",
+            "git.branch": "main",
+            "git.is_dirty": False,
+            "git.changed_files": 0,
+            "git.dirty_files": [],
+            "git.dirty_truncated": False,
+        },
+    )
 
     result = diagnostic_build.main(
         [
@@ -95,9 +109,19 @@ def test_other_uses_diagnostic_labels_and_omits_mesh_raw(
     assert records[1]["messages"][2]["content"] == (
         "Findings:\nReport mixed.\n<SEP>\nImpression:\nImpression mixed."
     )
-    manifest = (output / "manifest.yaml").read_text(encoding="utf-8")
-    assert "annotation_labeled.json" in manifest
-    assert "label_policy: other" in manifest
+    manifest = yaml.safe_load(
+        (output / "manifest.yaml").read_text(encoding="utf-8")
+    )
+    assert "annotation_labeled.json" in manifest["split_source"]
+    assert manifest["label_policy"] == "other"
+    assert manifest["provenance"] == {
+        "git.commit": "abc123",
+        "git.branch": "main",
+        "git.is_dirty": False,
+        "git.changed_files": 0,
+        "git.dirty_files": [],
+        "git.dirty_truncated": False,
+    }
 
 
 def test_no_other_removes_every_sample_containing_other(

@@ -198,7 +198,7 @@ def write_outputs(
 ) -> dict[str, Any]:
     import yaml
 
-    from ..tracking import sha256_file, sha256_text, sha256_tree
+    from ..tracking import git_metadata, sha256_file, sha256_text, sha256_tree
 
     for split, records in records_by_split.items():
         with (output_dir / f"{split}.jsonl").open("w", encoding="utf-8") as handle:
@@ -226,6 +226,7 @@ def write_outputs(
         "text_source": "diagnostic annotation report and impression",
         "n_examples": stats["n_examples"],
         "prompts": {"system": prompts.system, "user": prompts.user},
+        "provenance": git_metadata(root),
         "integrity": {
             "inputs": {
                 "annotation": sha256_file(annotation_path),
