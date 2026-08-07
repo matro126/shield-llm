@@ -1,0 +1,6 @@
+outs:
+- md5: 4b338259138516c501ef8084c40474d8.dir
+  size: 1112136397
+  nfiles: 6064
+  hash: md5
+  path: iu_xray_r2gen_final_impression_diagnostic
