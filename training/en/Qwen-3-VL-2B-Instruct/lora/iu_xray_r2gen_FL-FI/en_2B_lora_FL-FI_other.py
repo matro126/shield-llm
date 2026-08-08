@@ -25,7 +25,7 @@ OVERRIDES: dict = {
     "early_stopping_patience": 99,
     "early_stopping_min_delta": 0.001,
     "max_epochs": 15,
-    "tune_mm_llm": True,
+    "tune_mm_llm": False,
     "tune_mm_vision": True,
     "tune_mm_mlp": True,
     "vision_lr": 1e-05,
